@@ -1,0 +1,56 @@
+Estou desenvolvendo um web app responsivo (funciona bem em navegadores de celular e desktop), com login via Google OAuth 2.0, integração com a API do YouTube, e uso do Supabase como backend e banco de dados.
+
+Funcionalidades principais:
+Autenticação com Google (OAuth 2.0) via Supabase
+ - Usuário faz login com conta Google usando Supabase Auth.
+ - Sessão deve ser armazenada com persistência segura.
+
+Integração com API do YouTube (OAuth user access token):
+ - Listar todos os canais e playlists do usuário autenticado.
+ - Buscar em quais playlists um vídeo aparece, a partir de:
+  - Título do vídeo
+  - Link do vídeo
+  - ID do vídeo
+
+Exibição de estatísticas por vídeo:
+ - Views totais (vindas da API do YouTube).
+ - Estimativa de views por playlist (ver abordagem abaixo).
+
+Estimativa de impacto por playlist:
+ - A API do YouTube não fornece views segmentadas por playlist.
+ - Abordagem alternativa:
+  a) Identificar playlists onde o vídeo aparece.
+  b) Buscar views totais do vídeo.
+  c) (Opcional) Armazenar snapshots diários no Supabase.
+   → Comparar variação de views enquanto o vídeo está na playlist para estimar impacto.
+
+Campo de busca simples e visual:
+ - O usuário digita um termo, link ou ID.
+ - O sistema retorna as playlists relacionadas e dados do vídeo.
+
+Exportação de resultados:
+ - Permitir exportar os dados exibidos em CSV ou JSON.
+
+Stack e requisitos técnicos:
+Frontend: React com Tailwind CSS ou Bootstrap (foco em UI responsiva)
+
+Backend/API: Pode ser implementado com funções Edge do Supabase ou backend em Node.js caso necessário
+
+Autenticação: Supabase Auth com Google
+
+Banco de dados: Supabase PostgreSQL
+
+Deploy: Vercel ou Render
+
+Observações:
+O app será 100% web, responsivo mas sem necessidade de desenvolvimento mobile nativo.
+
+O uso da API do YouTube exige OAuth 2.0 com escopo adequado para acesso a playlists e vídeos do usuário.
+
+O Supabase será usado para:
+  - Armazenar usuários e tokens
+  - Armazenar playlists, vídeos e histórico de visualizações (snapshots)
+  - Consultas rápidas com indexes otimizados para busca por vídeo
+
+Objetivo:
+Criar uma plataforma simples e eficiente para analisar o desempenho de vídeos do YouTube dentro de playlists, com foco em insights úteis para criadores de conteúdo.
