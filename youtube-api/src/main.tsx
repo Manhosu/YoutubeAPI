@@ -1,50 +1,58 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
+import React from 'react'
+import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import './index.css'
 
-// Initialize any global polyfills that might be needed
-if (typeof window !== 'undefined' && !window.process) {
-  window.process = { env: {} } as any;
-}
+// Capturador de erros global para evitar tela branca
+const ErrorFallback = () => (
+  <div style={{ 
+    padding: '20px', 
+    backgroundColor: '#181818', 
+    color: 'white',
+    minHeight: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+    fontFamily: 'sans-serif'
+  }}>
+    <h1 style={{ color: '#ff0000' }}>Erro na Aplicação</h1>
+    <p>Ocorreu um erro ao carregar a aplicação. Por favor, tente novamente.</p>
+    <button 
+      onClick={() => window.location.reload()}
+      style={{
+        backgroundColor: '#ff0000',
+        color: 'white',
+        border: 'none',
+        padding: '10px 20px',
+        borderRadius: '4px',
+        cursor: 'pointer',
+        marginTop: '20px'
+      }}
+    >
+      Recarregar
+    </button>
+  </div>
+);
 
-// Setup global error handling
-const handleGlobalError = (event: ErrorEvent) => {
-  console.error('Global error caught:', event.error);
-  // Prevent the browser from showing the default error dialog
-  event.preventDefault();
+const renderApp = () => {
+  try {
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+  } catch (error) {
+    console.error('Erro ao renderizar a aplicação:', error);
+    // Renderizar um fallback para evitar tela branca
+    const rootElement = document.getElementById('root');
+    if (rootElement) {
+      rootElement.innerHTML = '';
+      ReactDOM.createRoot(rootElement).render(<ErrorFallback />);
+    }
+  }
 };
 
-window.addEventListener('error', handleGlobalError);
-window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason);
-  // Prevent the default handling
-  event.preventDefault();
-});
-
-// Certifica-se que o elemento root existe
-const rootElement = document.getElementById('root')
-if (!rootElement) throw new Error('Root element not found')
-
-const root = createRoot(rootElement)
-
-// Renderiza a aplicação
-try {
-  root.render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  )
-} catch (error) {
-  console.error('Error rendering the application:', error);
-  // Display a fallback UI
-  root.render(
-    <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-      <h1>Something went wrong</h1>
-      <p>The application could not be loaded. Please try refreshing the page.</p>
-      <button onClick={() => window.location.reload()}>
-        Refresh
-      </button>
-    </div>
-  );
-}
+// Tentar renderizar a aplicação
+renderApp();

@@ -5,9 +5,22 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 // Determinar a URL atual para o redirecionamento
-const siteUrl = import.meta.env.VITE_SITE_URL || 
-                window.location.origin ||
-                'http://localhost:5173';
+const getSiteUrl = () => {
+  // Priorizar a variável de ambiente definida no Vercel
+  if (import.meta.env.VITE_SITE_URL) {
+    return import.meta.env.VITE_SITE_URL;
+  }
+  
+  // Em segundo lugar, usar a URL atual do navegador
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  
+  // Fallback para localhost durante o SSR
+  return 'http://localhost:5173';
+};
+
+const siteUrl = getSiteUrl();
 
 // Log completo para debug
 console.log('=== Supabase Configuração ===');
