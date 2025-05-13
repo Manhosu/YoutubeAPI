@@ -323,3 +323,44 @@ button, .btn-primary, .btn-secondary, a.btn-primary, a.btn-secondary {
   opacity: 0;
   animation: fadeIn 0.3s forwards;
 }
+
+/* Estilos para o DatePicker */
+.react-datepicker {
+  @apply bg-[#2a2a2a] border border-gray-700 shadow-lg;
+}
+
+.react-datepicker__header {
+  @apply bg-[#1a1a1a] border-b border-gray-700;
+}
+
+.react-datepicker__current-month,
+.react-datepicker-time__header,
+.react-datepicker-year-header {
+  @apply text-white;
+}
+
+.react-datepicker__day-name {
+  @apply text-gray-400;
+}
+
+.react-datepicker__day {
+  @apply text-gray-200 hover:bg-red-600 hover:text-white;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--in-selecting-range,
+.react-datepicker__day--in-range {
+  @apply bg-red-600 text-white;
+}
+
+.react-datepicker__day--keyboard-selected {
+  @apply bg-red-700 text-white;
+}
+
+.react-datepicker__navigation-icon::before {
+  @apply border-gray-400;
+}
+
+.react-datepicker__day--outside-month {
+  @apply text-gray-500;
+}

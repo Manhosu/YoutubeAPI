@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 // Definindo a interface localmente para evitar problemas de importação
 interface PlaylistVideoItem {
   playlistId: string;
@@ -16,6 +16,11 @@ interface PlaylistVideoItem {
 }
 
 import { exportService } from '../services/exportService';
+import { reportService } from '../services/reportService';
+import DateRangePicker from './DateRangePicker';
+
+// Modo de exportação
+type ExportMode = 'standard' | 'growth-report';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -34,22 +39,46 @@ const ExportModal: React.FC<ExportModalProps> = ({
   playlistVideos, 
   isPlaylist 
 }) => {
+  const [exportMode, setExportMode] = useState<ExportMode>('standard');
+  const [startDate, setStartDate] = useState<Date>(new Date(new Date().setDate(new Date().getDate() - 7))); // 7 dias atrás
+  const [endDate, setEndDate] = useState<Date>(new Date()); // Hoje
+
   if (!isOpen) return null;
   
   const handleExportCSV = () => {
-    if (isPlaylist && playlistTitle && playlistVideos) {
-      exportService.exportPlaylistToCSV(playlistTitle, playlistVideos);
-    } else if (!isPlaylist && video) {
-      exportService.exportVideoToCSV(video);
+    if (exportMode === 'standard') {
+      if (isPlaylist && playlistTitle && playlistVideos) {
+        exportService.exportPlaylistToCSV(playlistTitle, playlistVideos);
+      } else if (!isPlaylist && video) {
+        exportService.exportVideoToCSV(video);
+      }
+    } else if (exportMode === 'growth-report') {
+      if (isPlaylist && playlistVideos && playlistVideos.length > 0) {
+        const report = reportService.generateGrowthReport(playlistVideos, startDate, endDate);
+        reportService.downloadReportCSV(report, `relatorio-${playlistTitle || 'videos'}-${report.dataInicio}-${report.dataFim}.csv`);
+      } else if (!isPlaylist && video) {
+        const report = reportService.generateVideoGrowthReport(video, startDate, endDate);
+        reportService.downloadReportCSV(report, `relatorio-video-${video.title}-${report.dataInicio}-${report.dataFim}.csv`);
+      }
     }
     onClose();
   };
   
   const handleExportJSON = () => {
-    if (isPlaylist && playlistTitle && playlistVideos) {
-      exportService.exportPlaylistToJSON(playlistTitle, playlistVideos);
-    } else if (!isPlaylist && video) {
-      exportService.exportVideoToJSON(video);
+    if (exportMode === 'standard') {
+      if (isPlaylist && playlistTitle && playlistVideos) {
+        exportService.exportPlaylistToJSON(playlistTitle, playlistVideos);
+      } else if (!isPlaylist && video) {
+        exportService.exportVideoToJSON(video);
+      }
+    } else if (exportMode === 'growth-report') {
+      if (isPlaylist && playlistVideos && playlistVideos.length > 0) {
+        const report = reportService.generateGrowthReport(playlistVideos, startDate, endDate);
+        reportService.downloadReportJSON(report, `relatorio-${playlistTitle || 'videos'}-${report.dataInicio}-${report.dataFim}.json`);
+      } else if (!isPlaylist && video) {
+        const report = reportService.generateVideoGrowthReport(video, startDate, endDate);
+        reportService.downloadReportJSON(report, `relatorio-video-${video.title}-${report.dataInicio}-${report.dataFim}.json`);
+      }
     }
     onClose();
   };
@@ -60,6 +89,46 @@ const ExportModal: React.FC<ExportModalProps> = ({
         <h3 className="text-xl font-semibold text-white mb-4">
           Exportar {isPlaylist ? 'Playlist' : 'Vídeo'}
         </h3>
+        
+        <div className="mb-6">
+          <div className="flex gap-3 mb-4">
+            <button
+              onClick={() => setExportMode('standard')}
+              className={`px-3 py-1 rounded-md text-sm transition-colors flex-1 ${
+                exportMode === 'standard' 
+                  ? 'bg-red-600 text-white' 
+                  : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'
+              }`}
+            >
+              Exportação Padrão
+            </button>
+            <button
+              onClick={() => setExportMode('growth-report')}
+              className={`px-3 py-1 rounded-md text-sm transition-colors flex-1 ${
+                exportMode === 'growth-report' 
+                  ? 'bg-red-600 text-white' 
+                  : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'
+              }`}
+            >
+              Relatório de Crescimento
+            </button>
+          </div>
+          
+          {exportMode === 'growth-report' && (
+            <div className="mb-6 bg-[#2a2a2a] rounded-md p-4 border border-gray-700">
+              <h4 className="text-white text-sm mb-3 font-medium">Selecione o período do relatório</h4>
+              <DateRangePicker
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+              />
+              <p className="mt-3 text-xs text-gray-400 italic">
+                O relatório vai analisar o crescimento diário de views e likes no período selecionado.
+              </p>
+            </div>
+          )}
+        </div>
         
         <p className="text-gray-300 mb-6">
           Escolha o formato para exportar os dados {isPlaylist ? 'da playlist' : 'do vídeo'}:
