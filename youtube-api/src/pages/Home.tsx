@@ -39,12 +39,10 @@ const Home = () => {
   
   // Uso mais seguro do AuthContext
   let user = null;
-  let signInWithGoogle = async () => {};
   
   try {
     const auth = useAuth();
     user = auth.user;
-    signInWithGoogle = auth.signInWithGoogle;
   } catch (error) {
     console.error("Erro ao acessar AuthContext:", error);
   }

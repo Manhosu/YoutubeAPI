@@ -114,27 +114,6 @@ const Dashboard = () => {
     setSearchMode('playlist');
   };
 
-  const toggleSearchMode = () => {
-    setSearchMode(prev => prev === 'playlist' ? 'video' : 'playlist');
-    
-    // Limpar resultados de pesquisa anteriores
-    setVideoSearchResults([]);
-    
-    // Se mudar para modo de playlist, atualizar as playlists filtradas
-    if (searchMode === 'video') {
-      if (searchTerm.trim() === '') {
-        setFilteredPlaylists(playlists);
-      } else {
-        const term = searchTerm.toLowerCase();
-        const filtered = playlists.filter(playlist => 
-          playlist.title.toLowerCase().includes(term) || 
-          (playlist.description && playlist.description.toLowerCase().includes(term))
-        );
-        setFilteredPlaylists(filtered);
-      }
-    }
-  };
-
   const searchVideos = async () => {
     if (!searchTerm.trim()) return;
     

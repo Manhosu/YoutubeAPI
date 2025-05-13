@@ -254,15 +254,15 @@ class YoutubeService {
       }));
       
       // Obter dados completos dos vídeos (incluindo estatísticas) em lotes
-      const videoIds = items.map(item => item.videoId).join(',');
+      const videoIds = items.map((item: PlaylistVideoItem) => item.videoId).join(',');
       const videoData = await this.fetchFromYoutube('videos', {
         'part': 'statistics,snippet',
         'id': videoIds
       });
       
       // Adicionar contagens de visualizações aos itens da playlist
-      const itemsWithStats = items.map(item => {
-        const videoStats = videoData.items.find((v: any) => v.id === item.videoId);
+      const itemsWithStats = items.map((item: PlaylistVideoItem) => {
+        const videoStats = videoData.items.find((v: { id: string; statistics: any }) => v.id === item.videoId);
         return {
           ...item,
           viewCount: videoStats ? parseInt(videoStats.statistics.viewCount || '0', 10) : 0,

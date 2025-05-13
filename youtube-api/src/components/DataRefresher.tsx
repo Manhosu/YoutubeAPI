@@ -1,11 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { youtubeService } from '../services/youtubeService';
 
 // Componente para gerenciar a atualização periódica dos dados
 const DataRefresher: React.FC = () => {
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  
   // Atualizar dados a cada 24 horas
   const REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 horas em milissegundos
   
@@ -18,20 +15,15 @@ const DataRefresher: React.FC = () => {
       let lastUpdate: Date | null = null;
       if (lastUpdateStr) {
         lastUpdate = new Date(lastUpdateStr);
-        setLastRefresh(lastUpdate);
       }
 
       if (!lastUpdate || (now.getTime() - lastUpdate.getTime() > REFRESH_INTERVAL)) {
         try {
-          setIsRefreshing(true);
           await youtubeService.schedulePlaylistUpdates();
           const newUpdateTime = new Date();
           localStorage.setItem('lastDataUpdate', newUpdateTime.toISOString());
-          setLastRefresh(newUpdateTime);
         } catch (error) {
           console.error('Erro na atualização automática:', error);
-        } finally {
-          setIsRefreshing(false);
         }
       } else {
         const nextUpdate = new Date(lastUpdate.getTime() + REFRESH_INTERVAL);
