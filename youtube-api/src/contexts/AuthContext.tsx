@@ -52,20 +52,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     console.log('AuthProvider useEffect running');
+    
+    // Função para processar a sessão após a autenticação
     const setInitialData = async () => {
       try {
-        // Get the initial session
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        // Processar hash da URL se existir (é assim que o Supabase retorna os tokens)
+        if (window.location.hash && window.location.hash.includes('access_token')) {
+          console.log('Detectado token no hash da URL');
+          
+          // Adicionar um pequeno atraso para permitir que o Supabase processe o hash
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        // Obter a sessão atual do Supabase
+        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          throw sessionError;
+        }
+        
         console.log('Initial session:', initialSession ? 'exists' : 'null');
-        setSession(initialSession as Session | null);
-        setUser(initialSession?.user as User | null);
+        
+        if (initialSession) {
+          setSession(initialSession as Session | null);
+          setUser(initialSession?.user as User | null);
+        } else {
+          console.log('Nenhuma sessão encontrada. Verificando hash da URL manualmente...');
+        }
+        
         setIsLoading(false);
 
-        // Set up the auth state change listener
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        // Configurar listener para mudanças no estado de autenticação
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
           console.log('Auth state change:', event);
-          setSession(session as Session | null);
-          setUser(session?.user as User | null);
+          
+          if (event === 'SIGNED_IN' && newSession) {
+            console.log('Usuário autenticado com sucesso!');
+            setSession(newSession as Session | null);
+            setUser(newSession?.user as User | null);
+          } else if (event === 'SIGNED_OUT') {
+            console.log('Usuário desconectado');
+            setSession(null);
+            setUser(null);
+          }
+          
           setIsLoading(false);
         });
 
@@ -82,7 +112,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setInitialData();
   }, []);
 
-  // Solução mais simples e direta de autenticação
+  // Autenticação com Google
   const signInWithGoogle = async () => {
     try {
       // Obter URL atual do navegador para o redirecionamento
@@ -94,8 +124,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log('URL atual do navegador:', currentUrl);
       console.log('URL de redirecionamento completa:', redirectUrl);
       
-      // Usar explicitamente a URL atual para redirecionamento
-      await supabase.auth.signInWithOAuth({
+      // Usar explicitamente a URL atual para redirecionamento com configuração otimizada
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: redirectUrl,
@@ -106,6 +136,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           scopes: 'https://www.googleapis.com/auth/youtube.readonly',
         }
       });
+      
+      if (error) throw error;
       
       console.log('Redirecionando para o Google...');
     } catch (error) {

@@ -45,8 +45,46 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'implicit'
+    flowType: 'implicit',
+    storage: {
+      getItem: (key) => {
+        try {
+          return localStorage.getItem(key);
+        } catch (error) {
+          console.error('Erro ao acessar localStorage:', error);
+          return null;
+        }
+      },
+      setItem: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+          return value;
+        } catch (error) {
+          console.error('Erro ao salvar no localStorage:', error);
+        }
+      },
+      removeItem: (key) => {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          console.error('Erro ao remover do localStorage:', error);
+        }
+      }
+    }
+  },
+  global: {
+    fetch: (...args) => {
+      console.log('Supabase fetch:', args[0]);
+      return fetch(...args);
+    }
   }
 })
+
+// Verificar explicitamente a URL atual para tokens
+if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+  console.log('Token detectado na URL, processando...');
+  // Não precisamos fazer mais nada, o Supabase vai detectar o token automaticamente
+  // devido à configuração detectSessionInUrl: true
+}
 
 export { supabase, siteUrl } 

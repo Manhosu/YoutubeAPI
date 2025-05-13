@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { supabase } from './lib/supabase';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -13,36 +14,79 @@ import DebugInfo from './components/DebugInfo';
 
 // Componente para receber o callback OAuth e redirecionar para o dashboard
 const AuthCallback = () => {
-  const { isLoading } = useAuth();
+  const { isLoading, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [processando, setProcessando] = useState<boolean>(true);
 
   // Log detalhado para debug
   console.log('AuthCallback ativado');
   console.log('URL completa:', window.location.href);
+  console.log('Hash da URL:', location.hash);
   console.log('Parâmetros URL:', location.search);
-  console.log('Hash:', location.hash);
 
+  // Processar a autenticação quando o componente montar
   useEffect(() => {
-    // Se houver um erro no URL, capture e exiba
-    const searchParams = new URLSearchParams(location.search);
-    const errorCode = searchParams.get('error');
-    const errorDescription = searchParams.get('error_description');
+    const processarAuth = async () => {
+      try {
+        // Verificar se há hash de autenticação na URL
+        if (location.hash && location.hash.includes('access_token')) {
+          console.log('Token encontrado no hash da URL, processando...');
+
+          // Processar a sessão diretamente se necessário
+          if (!user) {
+            console.log('Usuário não autenticado, tentando processar o hash manualmente');
+            
+            // Aguardar um momento para o Supabase processar
+            await new Promise(resolve => setTimeout(resolve, 800));
+            
+            // Verificar a sessão diretamente
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            
+            if (sessionError) {
+              throw new Error(`Erro ao processar sessão: ${sessionError.message}`);
+            }
+            
+            if (!sessionData.session) {
+              console.warn('Nenhuma sessão encontrada mesmo após processar hash');
+            } else {
+              console.log('Sessão processada com sucesso!');
+            }
+          } else {
+            console.log('Usuário já autenticado:', user.id);
+          }
+        } else {
+          // Se não há hash, verificar parâmetros de erro na URL
+          const searchParams = new URLSearchParams(location.search);
+          const errorCode = searchParams.get('error');
+          const errorDescription = searchParams.get('error_description');
+          
+          if (errorCode) {
+            console.error('Erro de autenticação:', errorCode, errorDescription);
+            setError(`Erro: ${errorDescription || errorCode}`);
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao processar callback de autenticação:', err);
+        setError(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setProcessando(false);
+      }
+    };
     
-    if (errorCode) {
-      console.error('Erro de autenticação:', errorCode, errorDescription);
-      setError(`Erro: ${errorDescription || errorCode}`);
-    }
-  }, [location]);
+    processarAuth();
+  }, [location, user]);
   
-  // Mostrar um spinner enquanto estiver carregando
-  if (isLoading) {
+  // Se estiver carregando a autenticação ou processando o callback 
+  if (isLoading || processando) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
         <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="mt-4">Finalizando autenticação...</p>
-        <p className="text-xs mt-2 max-w-md text-center">Redirecionando para o dashboard...</p>
+        <p className="mt-4">Processando autenticação...</p>
+        <p className="text-xs mt-2 max-w-md text-center text-gray-300">
+          {location.hash ? 'Processando token...' : 'Aguardando resposta de autenticação...'}
+        </p>
       </div>
     );
   }
@@ -65,8 +109,27 @@ const AuthCallback = () => {
     );
   }
   
-  // Se não estiver carregando e não houver erro, redirecionar para o dashboard
-  return <Navigate to="/dashboard" replace />;
+  // Se o usuário estiver autenticado, redirecionar para o dashboard
+  if (user) {
+    console.log('Usuário autenticado, redirecionando para dashboard');
+    return <Navigate to="/dashboard" replace />;
+  } else {
+    // Se não estiver autenticado mesmo após processamento, exibir erro
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900">
+        <div className="bg-orange-700 text-white p-4 rounded-md max-w-md">
+          <h2 className="text-xl font-bold mb-2">Falha na Autenticação</h2>
+          <p>O processo de autenticação não foi concluído com sucesso.</p>
+          <button 
+            className="mt-4 bg-white text-orange-700 px-4 py-2 rounded-md"
+            onClick={() => navigate('/login')}
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 };
 
 // Componente para rota protegida
