@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 
 // Definimos nossas próprias interfaces em vez de usar as importações do Supabase
@@ -75,18 +76,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setInitialData();
   }, []);
 
+  // Solução mais simples e direta de autenticação
   const signInWithGoogle = async () => {
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      console.log('Iniciando login com Google OAuth - Versão simplificada');
+      
+      // Usar a abordagem mais simples possível
+      await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
           scopes: 'https://www.googleapis.com/auth/youtube.readonly',
-          redirectTo: `${window.location.origin}/dashboard`
         }
       });
-      if (error) throw error;
+      
+      // Não é necessário fazer nada aqui, o Supabase redirecionará automaticamente
+      console.log('Redirecionando para o Google...');
     } catch (error) {
-      console.error('Error signing in with Google:', error);
+      console.error('Erro crítico durante autenticação:', error);
+      alert('Erro durante autenticação com Google. Verifique o console para detalhes.');
       throw error;
     }
   };

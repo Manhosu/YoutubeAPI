@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [
     react(),
   ],
+  server: {
+    port: 5175,
+    strictPort: false, // Permite tentar próxima porta disponível se 5175 estiver em uso
+    host: true, // Expõe para conexões externas
+    open: true, // Abre o navegador automaticamente
+  },
   resolve: {
     alias: {
       // Add any required aliases here
