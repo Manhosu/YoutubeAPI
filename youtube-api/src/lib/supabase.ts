@@ -58,7 +58,6 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       setItem: (key, value) => {
         try {
           localStorage.setItem(key, value);
-          return value;
         } catch (error) {
           console.error('Erro ao salvar no localStorage:', error);
         }
@@ -74,7 +73,6 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   global: {
     fetch: (...args) => {
-      console.log('Supabase fetch:', args[0]);
       return fetch(...args);
     }
   }
