@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/youtube-api/$1" }
+  ],
+  "buildCommand": "cd youtube-api && npm install && npm run build",
+  "outputDirectory": "youtube-api/dist",
+  "installCommand": "cd youtube-api && npm install",
+  "framework": null
+} 
