@@ -12,7 +12,19 @@ import DataRefresher from './components/DataRefresher';
 
 // Componente para receber o callback OAuth e redirecionar para o dashboard
 const AuthCallback = () => {
+  const { isLoading } = useAuth();
   console.log('Auth callback recebido, redirecionando para dashboard');
+  
+  // Mostrar um spinner enquanto estiver carregando
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[var(--primary-bg)]">
+        <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+        <p className="ml-4 text-white">Finalizando autenticação...</p>
+      </div>
+    );
+  }
+  
   return <Navigate to="/dashboard" replace />;
 };
 

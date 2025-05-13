@@ -83,6 +83,27 @@ The app can be deployed to Vercel or any similar platform:
 2. Configure the environment variables
 3. Deploy
 
+### Deployment with Vercel
+
+This project is configured to be deployed on Vercel. Follow these steps for proper configuration:
+
+1. Push your code to a GitHub repository
+2. Connect your GitHub repository to Vercel
+3. In the Vercel project settings, configure these environment variables:
+   - `VITE_SUPABASE_URL`: Your Supabase project URL
+   - `VITE_SUPABASE_ANON_KEY`: Your Supabase anonymous key
+   - `VITE_SITE_URL`: Your Vercel deployment URL (e.g., https://your-app.vercel.app)
+
+![Vercel Environment Variables](https://example.com/path/to/image.png)
+
+4. Redeploy your application after setting the environment variables
+
+### Important Notes
+
+- The application uses environment variables to determine the correct redirect URLs for authentication
+- When running locally, it uses `window.location.origin` as fallback
+- In production, make sure `VITE_SITE_URL` is set correctly to avoid localhost redirects
+
 ## License
 
 MIT
