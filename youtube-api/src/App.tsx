@@ -9,6 +9,7 @@ import PlaylistDetails from './pages/PlaylistDetails';
 import Fallback from './components/Fallback';
 import ErrorBoundary from './components/ErrorBoundary';
 import DataRefresher from './components/DataRefresher';
+import DebugInfo from './components/DebugInfo';
 
 // Componente para receber o callback OAuth e redirecionar para o dashboard
 const AuthCallback = () => {
@@ -66,6 +67,14 @@ function App() {
 
     return () => clearTimeout(timer);
   }, []);
+
+  // Mostrar informações sobre variáveis de ambiente
+  console.log('=== App Environment ===');
+  console.log('VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL || 'não definido');
+  console.log('VITE_SITE_URL:', import.meta.env.VITE_SITE_URL || 'não definido');
+  console.log('Tem chave Supabase:', Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY));
+  console.log('Window Origin:', window.location.origin);
+  console.log('Environment:', import.meta.env.DEV ? 'development' : 'production');
 
   const appStyle = {
     backgroundColor: '#f9fafb',
@@ -137,6 +146,8 @@ function App() {
             </Routes>
             {/* Componente invisível para gerenciar atualizações automáticas de dados */}
             <DataRefresher />
+            {/* Mostrar componente de debug */}
+            <DebugInfo />
           </Router>
         </AuthProvider>
       </div>
