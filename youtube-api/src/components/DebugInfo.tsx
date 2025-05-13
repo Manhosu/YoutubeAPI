@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 
 // Valores a serem mostrados no componente de debug
 interface DebugEnvironment {
@@ -15,6 +16,7 @@ interface DebugEnvironment {
 
 const DebugInfo: React.FC = () => {
   const [showDetails, setShowDetails] = useState<boolean>(false);
+  const { user } = useAuth();
   
   // Obter a URL atual que será usada para autenticação
   const currentUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -33,28 +35,75 @@ const DebugInfo: React.FC = () => {
     authRedirectUrl: authRedirectUrl
   };
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
   return (
-    <div className="fixed bottom-5 right-5">
-      <button
-        onClick={() => setShowDetails(!showDetails)}
-        className="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700"
-      >
-        {showDetails ? 'Ocultar Detalhes' : 'Debug Info'}
-      </button>
+    <div className="fixed bottom-5 right-5 z-50">
+      <div className="flex gap-2">
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          className="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700"
+        >
+          {showDetails ? 'Ocultar Detalhes' : 'Debug Info'}
+        </button>
+        
+        <button 
+          className={`py-2 px-4 rounded-md text-white ${user ? 'bg-green-600' : 'bg-yellow-600'}`}
+          title={user ? 'Autenticado' : 'Não autenticado'}
+        >
+          {user ? '✓ Auth' : '✗ Auth'}
+        </button>
+      </div>
 
       {showDetails && (
-        <div className="bg-gray-900 text-white p-4 rounded-md mt-2 border border-red-500 w-96">
+        <div className="bg-gray-900 text-white p-4 rounded-md mt-2 border border-red-500 w-96 max-h-[80vh] overflow-y-auto">
           <h3 className="text-lg font-bold mb-2">Informações de Debug</h3>
           
           <div className="mb-3">
-            <p className="font-medium">URL usada para Auth:</p>
+            <div className="flex justify-between items-center">
+              <p className="font-medium">Status Auth:</p>
+              <span 
+                className={`text-xs px-2 py-1 rounded ${user ? 'bg-green-600' : 'bg-yellow-600'}`}
+              >
+                {user ? 'Autenticado' : 'Não autenticado'}
+              </span>
+            </div>
+            {user && (
+              <p className="text-xs mt-1 text-gray-400">
+                ID: {user.id.substring(0, 8)}...
+              </p>
+            )}
+          </div>
+
+          <div className="mb-3">
+            <div className="flex justify-between">
+              <p className="font-medium">URL usada para Auth:</p>
+              <button 
+                className="text-xs bg-blue-700 px-1 rounded"
+                onClick={() => copyToClipboard(envInfo.authSiteUrl)}
+                title="Copiar para área de transferência"
+              >
+                Copiar
+              </button>
+            </div>
             <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
               {envInfo.authSiteUrl}
             </p>
           </div>
 
           <div className="mb-3">
-            <p className="font-medium">Redirect Auth:</p>
+            <div className="flex justify-between">
+              <p className="font-medium">Redirect Auth:</p>
+              <button 
+                className="text-xs bg-blue-700 px-1 rounded"
+                onClick={() => copyToClipboard(envInfo.authRedirectUrl)}
+                title="Copiar para área de transferência"
+              >
+                Copiar
+              </button>
+            </div>
             <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
               {envInfo.authRedirectUrl}
             </p>
