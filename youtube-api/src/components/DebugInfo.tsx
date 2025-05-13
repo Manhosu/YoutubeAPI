@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { siteUrl } from '../lib/supabase';
 
 // Valores a serem mostrados no componente de debug
 interface DebugEnvironment {
@@ -11,21 +10,27 @@ interface DebugEnvironment {
   fullUrl: string;
   pathname: string;
   environment: string;
+  authRedirectUrl: string;
 }
 
 const DebugInfo: React.FC = () => {
   const [showDetails, setShowDetails] = useState<boolean>(false);
   
+  // Obter a URL atual que será usada para autenticação
+  const currentUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const authRedirectUrl = `${currentUrl}/auth/callback`;
+  
   // Extrair informações do ambiente
   const envInfo: DebugEnvironment = {
     supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '[não definido]',
     siteUrl: import.meta.env.VITE_SITE_URL || '[não definido]',
-    authSiteUrl: siteUrl, // URL que está sendo usada para autenticação
+    authSiteUrl: currentUrl,
     hasSupabaseKey: Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY),
     origin: typeof window !== 'undefined' ? window.location.origin : '[servidor]',
     fullUrl: typeof window !== 'undefined' ? window.location.href : '[servidor]',
     pathname: typeof window !== 'undefined' ? window.location.pathname : '[servidor]',
-    environment: import.meta.env.DEV ? 'development' : 'production'
+    environment: import.meta.env.DEV ? 'development' : 'production',
+    authRedirectUrl: authRedirectUrl
   };
 
   return (
@@ -42,23 +47,16 @@ const DebugInfo: React.FC = () => {
           <h3 className="text-lg font-bold mb-2">Informações de Debug</h3>
           
           <div className="mb-3">
-            <p className="font-medium">URL Supabase:</p>
-            <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
-              {envInfo.supabaseUrl}
-            </p>
-          </div>
-
-          <div className="mb-3">
-            <p className="font-medium">Site URL (config):</p>
-            <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
-              {envInfo.siteUrl}
-            </p>
-          </div>
-
-          <div className="mb-3">
             <p className="font-medium">URL usada para Auth:</p>
             <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
               {envInfo.authSiteUrl}
+            </p>
+          </div>
+
+          <div className="mb-3">
+            <p className="font-medium">Redirect Auth:</p>
+            <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
+              {envInfo.authRedirectUrl}
             </p>
           </div>
 
@@ -77,16 +75,23 @@ const DebugInfo: React.FC = () => {
           </div>
 
           <div className="mb-3">
-            <p className="font-medium">Caminho Atual:</p>
+            <p className="font-medium">Ambiente:</p>
             <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
-              {envInfo.pathname}
+              {envInfo.environment}
             </p>
           </div>
 
           <div className="mb-3">
-            <p className="font-medium">Ambiente:</p>
+            <p className="font-medium">Site URL (config):</p>
             <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
-              {envInfo.environment}
+              {envInfo.siteUrl}
+            </p>
+          </div>
+
+          <div className="mb-3">
+            <p className="font-medium">URL Supabase:</p>
+            <p className="text-xs bg-gray-800 p-1 rounded overflow-x-auto">
+              {envInfo.supabaseUrl}
             </p>
           </div>
 
@@ -98,7 +103,7 @@ const DebugInfo: React.FC = () => {
           </div>
 
           <p className="text-xs text-gray-400 mt-4">
-            Se os valores acima estiverem incorretos, verifique se a detecção automática está funcionando.
+            Autenticação usará sempre o URL atual do navegador.
           </p>
         </div>
       )}

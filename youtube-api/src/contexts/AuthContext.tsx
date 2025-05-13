@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { supabase, siteUrl } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 // Definimos nossas próprias interfaces em vez de usar as importações do Supabase
 interface User {
@@ -36,6 +36,12 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => {},
   signOut: async () => {}
 });
+
+// Obtém a URL atual para usar em redirecionamentos
+const getCurrentUrl = () => {
+  // SEMPRE use a origem atual do navegador
+  return typeof window !== 'undefined' ? window.location.origin : '';
+};
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   console.log('AuthProvider rendering');
@@ -79,18 +85,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Solução mais simples e direta de autenticação
   const signInWithGoogle = async () => {
     try {
-      // Log completo das informações de URL para debug
-      console.log('=== Autenticação Google - Informações de URL ===');
-      console.log('siteUrl (da lib/supabase):', siteUrl);
-      console.log('URL de redirecionamento completa:', `${siteUrl}/auth/callback`);
-      console.log('window.location.origin:', window.location.origin);
-      console.log('VITE_SITE_URL:', import.meta.env.VITE_SITE_URL);
+      // Obter URL atual do navegador para o redirecionamento
+      const currentUrl = getCurrentUrl();
+      const redirectUrl = `${currentUrl}/auth/callback`;
       
-      // Usar a URL do Vercel quando estiver em produção
+      // Log de debug
+      console.log('=== Autenticação Google - Informações de URL ===');
+      console.log('URL atual do navegador:', currentUrl);
+      console.log('URL de redirecionamento completa:', redirectUrl);
+      
+      // Usar explicitamente a URL atual para redirecionamento
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${siteUrl}/auth/callback`,
+          redirectTo: redirectUrl,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -99,7 +107,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       });
       
-      // Log após o redirecionamento
       console.log('Redirecionando para o Google...');
     } catch (error) {
       console.error('Erro crítico durante autenticação:', error);

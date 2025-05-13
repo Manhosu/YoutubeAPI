@@ -6,26 +6,28 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIU
 
 // Determinar a URL atual para o redirecionamento de forma dinâmica
 const getSiteUrl = () => {
-  // Se estamos no navegador, sempre usar a origem atual
+  // Em ambiente de navegador, SEMPRE usar a origem atual
   if (typeof window !== 'undefined') {
     return window.location.origin;
   }
   
-  // Se não estamos no navegador (SSR) e temos VITE_SITE_URL, usar isso
+  // Para SSR, tentar usar variável de ambiente se disponível
   if (import.meta.env.VITE_SITE_URL) {
     return import.meta.env.VITE_SITE_URL;
   }
   
-  // Fallback para localhost durante o SSR quando não há outras informações
-  return 'http://localhost:5175';
+  // Último recurso para SSR
+  return '';
 };
 
+// Garantir que siteUrl seja sempre a origem atual durante a execução no cliente
 const siteUrl = getSiteUrl();
 
 // Log completo para debug
 console.log('=== Supabase Configuração ===');
 console.log('URL:', supabaseUrl);
 console.log('Site URL:', siteUrl);
+console.log('Window location:', typeof window !== 'undefined' ? window.location.href : 'SSR');
 console.log('Chave anônima válida:', supabaseAnonKey.length > 20 ? 'Sim (comprimento: '+supabaseAnonKey.length+')' : 'Não');
 
 // Verificação de segurança antes de criar o cliente
