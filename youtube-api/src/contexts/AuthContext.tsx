@@ -39,92 +39,83 @@ const AuthContext = createContext<AuthContextType>({
 
 // Obtém a URL atual para usar em redirecionamentos
 const getCurrentUrl = () => {
-  // SEMPRE use a origem atual do navegador
   return typeof window !== 'undefined' ? window.location.origin : '';
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  console.log('AuthProvider rendering');
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  // Efeito para inicializar a autenticação
   useEffect(() => {
-    console.log('AuthProvider useEffect running');
-    
-    // Função para processar a sessão após a autenticação
-    const setInitialData = async () => {
+    const initAuth = async () => {
       try {
-        // Processar hash da URL se existir (é assim que o Supabase retorna os tokens)
+        // Verificar se há hash na URL para processamento
         if (window.location.hash && window.location.hash.includes('access_token')) {
-          console.log('Detectado token no hash da URL');
-          
-          // Adicionar um pequeno atraso para permitir que o Supabase processe o hash
-          await new Promise(resolve => setTimeout(resolve, 500));
+          console.log('Token encontrado na URL, aguardando processamento pelo Supabase...');
         }
+
+        // Obter a sessão atual
+        const { data, error: sessionError } = await supabase.auth.getSession();
         
-        // Obter a sessão atual do Supabase
-        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
         
-        if (sessionError) {
-          throw sessionError;
-        }
-        
-        console.log('Initial session:', initialSession ? 'exists' : 'null');
-        
-        if (initialSession) {
-          setSession(initialSession as Session | null);
-          setUser(initialSession?.user as User | null);
+        if (data.session) {
+          console.log('Sessão existente encontrada');
+          setSession(data.session as Session);
+          setUser(data.session.user as User);
         } else {
-          console.log('Nenhuma sessão encontrada. Verificando hash da URL manualmente...');
+          console.log('Nenhuma sessão encontrada');
         }
         
-        setIsLoading(false);
-
-        // Configurar listener para mudanças no estado de autenticação
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-          console.log('Auth state change:', event);
-          
-          if (event === 'SIGNED_IN' && newSession) {
-            console.log('Usuário autenticado com sucesso!');
-            setSession(newSession as Session | null);
-            setUser(newSession?.user as User | null);
-          } else if (event === 'SIGNED_OUT') {
-            console.log('Usuário desconectado');
-            setSession(null);
-            setUser(null);
+        // Configurar listener para mudanças de autenticação
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          (event, currentSession) => {
+            console.log('Evento de autenticação:', event);
+            
+            if (currentSession) {
+              setSession(currentSession as Session);
+              setUser(currentSession.user as User);
+            } else {
+              setSession(null);
+              setUser(null);
+            }
+            
+            setIsLoading(false);
           }
-          
-          setIsLoading(false);
-        });
-
+        );
+        
+        // Marcar como não carregando após a verificação inicial
+        setIsLoading(false);
+        
         return () => {
           subscription.unsubscribe();
         };
       } catch (err) {
-        console.error('Error in auth setup:', err);
+        console.error('Erro na inicialização da autenticação:', err);
         setError(err instanceof Error ? err : new Error(String(err)));
         setIsLoading(false);
       }
     };
-
-    setInitialData();
+    
+    initAuth();
   }, []);
 
-  // Autenticação com Google
+  // Função para autenticação com Google
   const signInWithGoogle = async () => {
     try {
-      // Obter URL atual do navegador para o redirecionamento
+      setIsLoading(true);
+      
+      // Obter URL atual para redirecionamento
       const currentUrl = getCurrentUrl();
       const redirectUrl = `${currentUrl}/auth/callback`;
       
-      // Log de debug
-      console.log('=== Autenticação Google - Informações de URL ===');
-      console.log('URL atual do navegador:', currentUrl);
-      console.log('URL de redirecionamento completa:', redirectUrl);
+      console.log('Iniciando autenticação Google');
+      console.log('URL de redirecionamento:', redirectUrl);
       
-      // Usar explicitamente a URL atual para redirecionamento com configuração otimizada
+      // Iniciar o fluxo de OAuth
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -139,24 +130,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       if (error) throw error;
       
-      console.log('Redirecionando para o Google...');
+      console.log('Redirecionando para Google...');
     } catch (error) {
-      console.error('Erro crítico durante autenticação:', error);
-      alert('Erro durante autenticação com Google. Verifique o console para detalhes.');
+      console.error('Erro na autenticação Google:', error);
+      setIsLoading(false);
       throw error;
     }
   };
 
+  // Função para logout
   const signOut = async () => {
     try {
+      setIsLoading(true);
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+      setUser(null);
+      setSession(null);
     } catch (error) {
-      console.error('Error signing out:', error);
-      throw error;
+      console.error('Erro ao fazer logout:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Valores do contexto
   const value = {
     session,
     user,
@@ -165,6 +162,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     signOut
   };
 
+  // Exibir erro se houver
   if (error) {
     return (
       <div style={{ padding: '20px', backgroundColor: '#fee2e2', color: '#b91c1c', margin: '20px', borderRadius: '8px' }}>
