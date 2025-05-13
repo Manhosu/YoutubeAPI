@@ -1,15 +1,9 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "devCommand": "npm run dev",
-  "framework": "vite",
+  "version": 2,
+  "buildCommand": "npm run vercel-build",
+  "framework": null,
   "rewrites": [
-    { "source": "/auth/callback", "destination": "/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "routes": [
-    { "src": "/auth/callback", "dest": "/index.html", "status": 200 },
-    { "src": "/(.*)", "dest": "/index.html", "status": 200 }
   ],
   "headers": [
     {
