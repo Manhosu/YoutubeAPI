@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { ptBR } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -19,13 +19,22 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onStartDateChange,
   onEndDateChange
 }) => {
+  // Handlers para converter os tipos esperados pela biblioteca
+  const handleStartDateChange = (date: Date | null) => {
+    if (date) onStartDateChange(date);
+  };
+
+  const handleEndDateChange = (date: Date | null) => {
+    if (date) onEndDateChange(date);
+  };
+
   return (
     <div className="flex flex-col sm:flex-row gap-4">
       <div className="flex-1">
         <label className="block text-sm text-gray-400 mb-1">Data inicial</label>
         <DatePicker
           selected={startDate}
-          onChange={onStartDateChange}
+          onChange={handleStartDateChange}
           selectsStart
           startDate={startDate}
           endDate={endDate}
@@ -39,7 +48,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         <label className="block text-sm text-gray-400 mb-1">Data final</label>
         <DatePicker
           selected={endDate}
-          onChange={onEndDateChange}
+          onChange={handleEndDateChange}
           selectsEnd
           startDate={startDate}
           endDate={endDate}
