@@ -1,7 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { youtubeService, type YoutubePlaylist, type PlaylistVideoItem } from '../services/youtubeService';
+import { youtubeService, type YoutubePlaylist } from '../services/youtubeService';
+// Definindo a interface localmente para evitar problemas de importação
+interface PlaylistVideoItem {
+  playlistId: string;
+  videoId: string;
+  title: string;
+  thumbnailUrl: string;
+  position: number;
+  viewCount?: number;
+  likeCount?: number;
+  dislikeCount?: number;
+  estimatedViews?: number;
+  channelTitle?: string;
+  publishedAt?: string;
+  lastUpdated?: string;
+}
+import ExportModal from '../components/ExportModal';
 
 type SearchType = 'title' | 'id' | 'url';
 
@@ -17,6 +33,9 @@ const PlaylistDetails = () => {
   const [searchType, setSearchType] = useState<SearchType>('title');
   const [searching, setSearching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState<PlaylistVideoItem | null>(null);
+  const [exportMode, setExportMode] = useState<'playlist' | 'video'>('playlist');
   
   const fetchPlaylistData = async (forceRefresh = false) => {
     if (!id) return;
@@ -111,6 +130,17 @@ const PlaylistDetails = () => {
     return new Intl.NumberFormat('pt-BR').format(num);
   };
 
+  // Função para abrir o modal de exportação
+  const handleOpenExportModal = (mode: 'playlist' | 'video', video?: PlaylistVideoItem) => {
+    setExportMode(mode);
+    if (mode === 'video' && video) {
+      setSelectedVideo(video);
+    } else {
+      setSelectedVideo(null);
+    }
+    setExportModalOpen(true);
+  };
+
   return (
     <Layout>
       <div className="page-transition max-w-6xl mx-auto">
@@ -141,28 +171,40 @@ const PlaylistDetails = () => {
                   Voltar para playlists
                 </Link>
                 
-                <button
-                  onClick={handleRefreshData}
-                  disabled={refreshing}
-                  className="flex items-center gap-2 text-sm text-white bg-[#2a2a2a] hover:bg-[#333] px-3 py-1.5 rounded-md transition-colors"
-                >
-                  {refreshing ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Atualizando...
-                    </>
-                  ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                      </svg>
-                      Atualizar dados
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleOpenExportModal('playlist')}
+                    className="flex items-center gap-2 text-sm text-white bg-[#2a2a2a] hover:bg-[#333] px-3 py-1.5 rounded-md transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Exportar playlist
+                  </button>
+                  
+                  <button
+                    onClick={handleRefreshData}
+                    disabled={refreshing}
+                    className="flex items-center gap-2 text-sm text-white bg-[#2a2a2a] hover:bg-[#333] px-3 py-1.5 rounded-md transition-colors"
+                  >
+                    {refreshing ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Atualizando...
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                        Atualizar dados
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               
               <div className="card overflow-hidden mb-8">
@@ -407,7 +449,7 @@ const PlaylistDetails = () => {
                           </div>
                         </div>
                         
-                        <div className="flex items-center mt-4">
+                        <div className="flex items-center mt-4 space-x-4">
                           <a
                             href={`https://youtube.com/watch?v=${video.videoId}&list=${video.playlistId}`}
                             target="_blank"
@@ -419,6 +461,16 @@ const PlaylistDetails = () => {
                             </svg>
                             Assistir
                           </a>
+                          
+                          <button
+                            onClick={() => handleOpenExportModal('video', video)}
+                            className="text-blue-500 hover:text-blue-400 transition-colors flex items-center"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                            </svg>
+                            Exportar
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -428,6 +480,16 @@ const PlaylistDetails = () => {
             )}
           </>
         )}
+        
+        {/* Modal de exportação */}
+        <ExportModal
+          isOpen={exportModalOpen}
+          onClose={() => setExportModalOpen(false)}
+          video={selectedVideo || undefined}
+          playlistTitle={playlist?.title}
+          playlistVideos={videos}
+          isPlaylist={exportMode === 'playlist'}
+        />
       </div>
     </Layout>
   );
