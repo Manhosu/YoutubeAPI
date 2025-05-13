@@ -4,20 +4,20 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qzzzpcrvcsrmxfwnoqag.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6enpwY3J2Y3NybXhmd25vcWFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwNzU2NzEsImV4cCI6MjA2MjY1MTY3MX0.HxgZNB3y65mDNVtDnJSDnnOdpCeuvBqlTs5OMFma9O0';
 
-// Determinar a URL atual para o redirecionamento
+// Determinar a URL atual para o redirecionamento de forma dinâmica
 const getSiteUrl = () => {
-  // Priorizar a variável de ambiente definida no Vercel
-  if (import.meta.env.VITE_SITE_URL) {
-    return import.meta.env.VITE_SITE_URL;
-  }
-  
-  // Em segundo lugar, usar a URL atual do navegador
+  // Se estamos no navegador, sempre usar a origem atual
   if (typeof window !== 'undefined') {
     return window.location.origin;
   }
   
-  // Fallback para localhost durante o SSR
-  return 'http://localhost:5173';
+  // Se não estamos no navegador (SSR) e temos VITE_SITE_URL, usar isso
+  if (import.meta.env.VITE_SITE_URL) {
+    return import.meta.env.VITE_SITE_URL;
+  }
+  
+  // Fallback para localhost durante o SSR quando não há outras informações
+  return 'http://localhost:5175';
 };
 
 const siteUrl = getSiteUrl();

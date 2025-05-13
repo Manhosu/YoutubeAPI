@@ -1,11 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
-
-// Determinar a URL atual para o redirecionamento
-const siteUrl = import.meta.env.VITE_SITE_URL || 
-                window.location.origin ||
-                'http://localhost:5173';
+import { supabase, siteUrl } from '../lib/supabase';
 
 // Definimos nossas próprias interfaces em vez de usar as importações do Supabase
 interface User {
@@ -84,10 +79,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Solução mais simples e direta de autenticação
   const signInWithGoogle = async () => {
     try {
-      console.log('Iniciando login com Google OAuth - Versão simplificada');
-      console.log('Redirecionando para URL:', `${siteUrl}/auth/callback`);
+      // Log completo das informações de URL para debug
+      console.log('=== Autenticação Google - Informações de URL ===');
+      console.log('siteUrl (da lib/supabase):', siteUrl);
+      console.log('URL de redirecionamento completa:', `${siteUrl}/auth/callback`);
+      console.log('window.location.origin:', window.location.origin);
+      console.log('VITE_SITE_URL:', import.meta.env.VITE_SITE_URL);
       
-      // Usar a abordagem mais simples possível
+      // Usar a URL do Vercel quando estiver em produção
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -100,7 +99,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       });
       
-      // Não é necessário fazer nada aqui, o Supabase redirecionará automaticamente
+      // Log após o redirecionamento
       console.log('Redirecionando para o Google...');
     } catch (error) {
       console.error('Erro crítico durante autenticação:', error);
