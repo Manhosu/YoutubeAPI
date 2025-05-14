@@ -1,6 +1,4 @@
-import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
 import { useEffect, useState, useRef } from 'react';
 
 const Home = () => {
@@ -36,16 +34,6 @@ const Home = () => {
       }
     };
   }, []);
-  
-  // Uso mais seguro do AuthContext
-  let user = null;
-  
-  try {
-    const auth = useAuth();
-    user = auth.user;
-  } catch (error) {
-    console.error("Erro ao acessar AuthContext:", error);
-  }
 
   return (
     <Layout>
