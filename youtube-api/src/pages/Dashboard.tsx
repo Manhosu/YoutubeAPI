@@ -10,6 +10,9 @@ interface PlaylistWithFoundVideos {
   foundVideos: PlaylistVideoItem[];
 }
 
+// Tipo para os tipos de pesquisa
+type SearchType = 'title' | 'id' | 'url';
+
 const Dashboard = () => {
   const { user } = useAuth();
   const [channels, setChannels] = useState<YoutubeChannel[]>([]);
@@ -20,6 +23,7 @@ const Dashboard = () => {
   const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchMode, setSearchMode] = useState<'playlist' | 'video'>('playlist');
+  const [searchType, setSearchType] = useState<SearchType>('title');
   const [videoSearchResults, setVideoSearchResults] = useState<PlaylistWithFoundVideos[]>([]);
   const [searching, setSearching] = useState(false);
 
@@ -121,7 +125,42 @@ const Dashboard = () => {
     setError(null);
     
     try {
-      const results = await youtubeService.searchVideoAcrossPlaylists(searchTerm);
+      let results: PlaylistWithFoundVideos[] = [];
+      
+      // Realizar a pesquisa com base no tipo selecionado
+      if (searchType === 'title') {
+        results = await youtubeService.searchVideoAcrossPlaylists(searchTerm);
+      } else if (searchType === 'id') {
+        // Buscar vídeo por ID
+        const video = await youtubeService.getVideoById(searchTerm);
+        if (video && video.playlists) {
+          // Construir resultados no mesmo formato
+          results = await Promise.all(video.playlists.map(async (playlist) => {
+            const playlistItems = await youtubeService.getPlaylistItems(playlist.id);
+            const foundVideo = playlistItems.find(item => item.videoId === searchTerm);
+            return {
+              playlist,
+              foundVideos: foundVideo ? [foundVideo] : []
+            };
+          }));
+          results = results.filter(result => result.foundVideos.length > 0);
+        }
+      } else if (searchType === 'url') {
+        // Extrair ID do vídeo da URL e buscar
+        const videoByUrl = await youtubeService.getVideoByUrl(searchTerm);
+        if (videoByUrl && videoByUrl.playlists) {
+          results = await Promise.all(videoByUrl.playlists.map(async (playlist) => {
+            const playlistItems = await youtubeService.getPlaylistItems(playlist.id);
+            const foundVideo = playlistItems.find(item => item.videoId === videoByUrl.id);
+            return {
+              playlist,
+              foundVideos: foundVideo ? [foundVideo] : []
+            };
+          }));
+          results = results.filter(result => result.foundVideos.length > 0);
+        }
+      }
+      
       setVideoSearchResults(results);
       
       if (results.length === 0) {
@@ -227,13 +266,60 @@ const Dashboard = () => {
               </div>
             </div>
             
+            {searchMode === 'video' && (
+              <div className="mb-4">
+                <div className="flex flex-wrap gap-3 mb-3">
+                  <label className={`px-4 py-2 rounded-md cursor-pointer transition-colors ${searchType === 'title' ? 'bg-red-600 text-white' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>
+                    <input
+                      type="radio"
+                      value="title"
+                      checked={searchType === 'title'}
+                      onChange={() => setSearchType('title')}
+                      className="sr-only"
+                    />
+                    Título do vídeo
+                  </label>
+                  
+                  <label className={`px-4 py-2 rounded-md cursor-pointer transition-colors ${searchType === 'id' ? 'bg-red-600 text-white' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>
+                    <input
+                      type="radio"
+                      value="id"
+                      checked={searchType === 'id'}
+                      onChange={() => setSearchType('id')}
+                      className="sr-only"
+                    />
+                    ID do vídeo
+                  </label>
+                  
+                  <label className={`px-4 py-2 rounded-md cursor-pointer transition-colors ${searchType === 'url' ? 'bg-red-600 text-white' : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333]'}`}>
+                    <input
+                      type="radio"
+                      value="url"
+                      checked={searchType === 'url'}
+                      onChange={() => setSearchType('url')}
+                      className="sr-only"
+                    />
+                    URL do vídeo
+                  </label>
+                </div>
+              </div>
+            )}
+            
             <form onSubmit={handleSearchSubmit} className="w-full">
               <div className="relative">
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={handleSearch}
-                  placeholder={searchMode === 'playlist' ? "Pesquisar playlists..." : "Pesquisar vídeos em todas as playlists..."}
+                  placeholder={
+                    searchMode === 'playlist' 
+                      ? "Pesquisar playlists..." 
+                      : searchType === 'title'
+                        ? "Pesquisar vídeos por título..."
+                        : searchType === 'id'
+                          ? "Digite o ID do vídeo (ex: dQw4w9WgXcQ)"
+                          : "Digite a URL do vídeo (ex: https://youtu.be/dQw4w9WgXcQ)"
+                  }
                   className="w-full bg-[#1f1f1f] text-white px-4 py-3 rounded-md pr-24 focus:outline-none focus:ring-1 focus:ring-red-500"
                 />
                 <div className="absolute right-1 top-1/2 transform -translate-y-1/2 flex">

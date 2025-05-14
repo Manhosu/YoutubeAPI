@@ -474,7 +474,28 @@ class YoutubeService {
   // Extrair ID do vídeo de uma URL do YouTube
   private extractVideoIdFromUrl(url: string): string | null {
     try {
-      const urlObj = new URL(url);
+      // Verificar se é uma URL válida
+      if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+        return null;
+      }
+      
+      // Tentar criar um objeto URL
+      let urlObj: URL;
+      try {
+        urlObj = new URL(url);
+      } catch (e) {
+        // Se não conseguir criar um objeto URL, tentar extrair o ID usando regex
+        const regexShort = /youtu\.be\/([a-zA-Z0-9_-]+)/;
+        const regexLong = /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/;
+        
+        const matchShort = url.match(regexShort);
+        if (matchShort) return matchShort[1];
+        
+        const matchLong = url.match(regexLong);
+        if (matchLong) return matchLong[1];
+        
+        return null;
+      }
       
       // URLs no formato: youtube.com/watch?v=VIDEO_ID
       if (urlObj.hostname.includes('youtube.com') && urlObj.pathname === '/watch') {
@@ -484,6 +505,11 @@ class YoutubeService {
       // URLs no formato: youtu.be/VIDEO_ID
       if (urlObj.hostname === 'youtu.be') {
         return urlObj.pathname.substring(1);
+      }
+      
+      // URLs no formato: youtube.com/embed/VIDEO_ID
+      if (urlObj.hostname.includes('youtube.com') && urlObj.pathname.startsWith('/embed/')) {
+        return urlObj.pathname.split('/embed/')[1];
       }
       
       return null;

@@ -10,7 +10,6 @@ import PlaylistDetails from './pages/PlaylistDetails';
 import Fallback from './components/Fallback';
 import ErrorBoundary from './components/ErrorBoundary';
 import DataRefresher from './components/DataRefresher';
-import DebugInfo from './components/DebugInfo';
 
 // Componente para receber o callback OAuth e redirecionar para o dashboard
 const AuthCallback = () => {
@@ -188,8 +187,6 @@ function App() {
             </Routes>
             {/* Componente invisível para gerenciar atualizações automáticas de dados */}
             <DataRefresher />
-            {/* Mostrar componente de debug */}
-            <DebugInfo />
           </Router>
         </AuthProvider>
       </div>
