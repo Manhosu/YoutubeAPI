@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
@@ -407,8 +408,12 @@ export const MultiAccountProvider = ({ children }: { children: ReactNode }) => {
       const savedAccounts = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
       if (!savedAccounts) return [];
       
-      // Restaurar contas, mas sem os tokens (serão atualizados quando necessário)
-      return JSON.parse(savedAccounts) as Omit<GoogleAccount, 'providerToken'>[];
+      // Restaurar contas e adicionar um token vazio para satisfazer a tipagem
+      const parsedAccounts = JSON.parse(savedAccounts);
+      return parsedAccounts.map((acc: any) => ({
+        ...acc,
+        providerToken: '' // Token vazio que será atualizado depois
+      }));
     } catch (error) {
       console.error('Erro ao carregar contas do localStorage:', error);
       return [];

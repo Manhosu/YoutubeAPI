@@ -1,5 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+// Importar fixes antes de App para corrigir problemas de build
+import './services/fixes.ts'
 import App from './App.tsx'
 import './index.css'
 

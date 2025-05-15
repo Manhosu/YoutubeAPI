@@ -83,6 +83,12 @@ const ExportModal: React.FC<ExportModalProps> = ({
     onClose();
   };
   
+  // Função para gerenciar a mudança de datas
+  const handleDateRangeChange = (start: Date, end: Date) => {
+    setStartDate(start);
+    setEndDate(end);
+  };
+  
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
       <div className="bg-[#1a1a1a] rounded-lg w-full max-w-md p-6 shadow-xl border border-gray-800">
@@ -120,8 +126,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               <DateRangePicker
                 startDate={startDate}
                 endDate={endDate}
-                onStartDateChange={setStartDate}
-                onEndDateChange={setEndDate}
+                onChange={handleDateRangeChange}
               />
               <p className="mt-3 text-xs text-gray-400 italic">
                 O relatório vai analisar o crescimento diário de views e likes no período selecionado.
