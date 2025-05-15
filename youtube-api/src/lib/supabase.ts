@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 // Usar variáveis de ambiente para configurações com fallbacks
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qzzzpcrvcsmxfwnoqag.supabase.co';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qzzzpcrvcsrmxfwnoqag.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6enpwY3J2Y3NybXhmd25vcWFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwNzU2NzEsImV4cCI6MjA2MjY1MTY3MX0.HxgZNB3y65mDNVtDnJSDnnOdpCeuvBqlTs5OMFma9O0';
 
 // Determinar a URL atual para o redirecionamento de forma dinâmica
