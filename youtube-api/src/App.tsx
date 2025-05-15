@@ -155,7 +155,7 @@ function App() {
         onClick={() => window.location.reload()}
       >
         Tentar novamente
-      </button>
+        </button>
     </div>
   );
 

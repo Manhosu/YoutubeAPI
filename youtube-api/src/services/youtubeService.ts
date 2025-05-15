@@ -64,8 +64,30 @@ export interface PlaylistWithFoundVideos {
 class YoutubeService {
   // Cache para armazenar temporariamente os dados das playlists
   private playlistCache: Map<string, { data: PlaylistVideoItem[], timestamp: number }> = new Map();
-  // Intervalo de atualização (24 horas em milissegundos)
-  private readonly REFRESH_INTERVAL = 24 * 60 * 60 * 1000;
+  
+  // Cache de resultados de pesquisa para evitar repetição de buscas frequentes
+  private searchCache: Map<string, { results: PlaylistWithFoundVideos[], timestamp: number }> = new Map();
+  
+  // Intervalo de atualização (3 horas em milissegundos)
+  private readonly REFRESH_INTERVAL = 3 * 60 * 60 * 1000;
+  
+  // Intervalo de validade do cache de pesquisa (10 minutos)
+  private readonly SEARCH_CACHE_TTL = 10 * 60 * 1000;
+
+  // Callback para reportar progresso
+  private progressCallback: ((current: number, total: number) => void) | null = null;
+  
+  // Definir o callback de progresso
+  setProgressListener(callback: ((current: number, total: number) => void) | null): void {
+    this.progressCallback = callback;
+  }
+  
+  // Método para reportar progresso
+  private reportProgress(current: number, total: number): void {
+    if (this.progressCallback) {
+      this.progressCallback(current, total);
+    }
+  }
 
   // Obter o token de acesso do usuário logado
   private async getAccessToken(): Promise<string | null> {
@@ -199,7 +221,7 @@ class YoutubeService {
   }
   
   // Obter todas as playlists (incluindo paginação)
-  private async getAllPlaylists(): Promise<YoutubePlaylist[]> {
+  async getAllPlaylists(): Promise<YoutubePlaylist[]> {
     let allPlaylists: YoutubePlaylist[] = [];
     let nextPageToken: string | undefined = undefined;
     
@@ -419,22 +441,80 @@ class YoutubeService {
   // Pesquisar vídeo em todas as playlists
   async searchVideoAcrossPlaylists(query: string): Promise<PlaylistWithFoundVideos[]> {
     try {
-      // Obter todas as playlists do usuário
-      const allPlaylists = await this.getAllPlaylists();
-      const results: PlaylistWithFoundVideos[] = [];
-      
-      // Buscar vídeos em cada playlist
-      for (const playlist of allPlaylists) {
-        const matchingVideos = await this.searchVideosInPlaylist(playlist.id, query);
-        
-        if (matchingVideos.length > 0) {
-          results.push({
-            playlist,
-            foundVideos: matchingVideos
-          });
+      // Verificar se temos resultado em cache
+      const cacheKey = `search_${query.toLowerCase().trim()}`;
+      if (this.searchCache.has(cacheKey)) {
+        const cachedData = this.searchCache.get(cacheKey)!;
+        const now = Date.now();
+        // Usar cache se tiver menos de 10 minutos
+        if (now - cachedData.timestamp < this.SEARCH_CACHE_TTL) {
+          console.log(`Usando resultados de pesquisa em cache para "${query}"`);
+          return cachedData.results;
         }
       }
       
+      console.log(`Iniciando pesquisa para "${query}" em todas as playlists`);
+      
+      // Obter todas as playlists do usuário
+      const allPlaylists = await this.getAllPlaylists();
+      console.log(`Total de playlists a pesquisar: ${allPlaylists.length}`);
+      this.reportProgress(0, allPlaylists.length);
+      
+      // Dividir playlists em lotes para processamento paralelo
+      const batchSize = 5; // Reduzir o tamanho do lote para processar mais gradualmente
+      const batches = [];
+      
+      for (let i = 0; i < allPlaylists.length; i += batchSize) {
+        batches.push(allPlaylists.slice(i, i + batchSize));
+      }
+      
+      console.log(`Dividido em ${batches.length} lotes para processamento otimizado`);
+      
+      const results: PlaylistWithFoundVideos[] = [];
+      let processedCount = 0;
+      
+      // Processar lotes sequencialmente para melhor controle do progresso
+      for (const batch of batches) {
+        // Para cada lote, processar playlists em paralelo
+        const batchResults = await Promise.all(
+          batch.map(async (playlist) => {
+            try {
+              const matchingVideos = await this.searchVideosInPlaylist(playlist.id, query);
+              
+              // Atualizar o contador de progresso independentemente do resultado
+              processedCount++;
+              this.reportProgress(processedCount, allPlaylists.length);
+              
+              if (matchingVideos.length > 0) {
+                return {
+                  playlist,
+                  foundVideos: matchingVideos
+                };
+              }
+              return null;
+            } catch (error) {
+              console.error(`Erro ao pesquisar na playlist ${playlist.id}:`, error);
+              // Ainda incrementar progresso em caso de erro
+              processedCount++;
+              this.reportProgress(processedCount, allPlaylists.length);
+              return null;
+            }
+          })
+        );
+        
+        // Adicionar resultados válidos
+        batchResults.filter(result => result !== null).forEach(result => {
+          if (result) results.push(result);
+        });
+      }
+      
+      // Armazenar em cache
+      this.searchCache.set(cacheKey, {
+        results,
+        timestamp: Date.now()
+      });
+      
+      console.log(`Pesquisa concluída: ${results.length} playlists contêm "${query}"`);
       return results;
     } catch (error) {
       console.error('Erro ao pesquisar vídeo em todas as playlists:', error);
@@ -522,24 +602,73 @@ class YoutubeService {
   // Atualizar dados de uma playlist específica
   async refreshPlaylistData(playlistId: string): Promise<PlaylistVideoItem[]> {
     console.log(`Atualizando dados da playlist ${playlistId}`);
+    // Remover esta playlist específica do cache antes de atualizar
+    this.playlistCache.delete(playlistId);
+    // Limpar cache de pesquisa que pode conter resultados desatualizados
+    this.searchCache.clear();
     return this.getPlaylistItems(playlistId, undefined, true);
   }
   
-  // Agenda a atualização diária de todas as playlists
+  // Agenda a atualização de todas as playlists
   async schedulePlaylistUpdates(): Promise<void> {
     try {
-      // Obter todas as playlists do usuário
-      const { playlists } = await this.getMyPlaylists();
+      const startTime = Date.now();
+      console.log('Iniciando atualização de todas as playlists...');
       
-      for (const playlist of playlists) {
-        await this.refreshPlaylistData(playlist.id);
-        console.log(`Playlist ${playlist.id} atualizada com sucesso.`);
+      // Obter todas as playlists do usuário
+      const allPlaylists = await this.getAllPlaylists();
+      console.log(`Total de playlists para atualizar: ${allPlaylists.length}`);
+      
+      // Reportar progresso inicial
+      this.reportProgress(0, allPlaylists.length);
+      
+      // Dividir playlists em lotes para processamento paralelo
+      const batchSize = 5;
+      const batches = [];
+      
+      for (let i = 0; i < allPlaylists.length; i += batchSize) {
+        batches.push(allPlaylists.slice(i, i + batchSize));
       }
       
-      console.log(`Todas as playlists foram atualizadas. Próxima atualização em 24 horas.`);
+      let processedCount = 0;
+      
+      // Processar lotes sequencialmente para evitar sobrecarregar a API
+      for (const batch of batches) {
+        await Promise.all(
+          batch.map(async (playlist) => {
+            try {
+              await this.refreshPlaylistData(playlist.id);
+              processedCount++;
+              this.reportProgress(processedCount, allPlaylists.length);
+              console.log(`Progresso: ${processedCount}/${allPlaylists.length} playlists atualizadas`);
+            } catch (error) {
+              console.error(`Erro ao atualizar playlist ${playlist.id}:`, error);
+              // Ainda incrementar o progresso mesmo em caso de erro
+              processedCount++;
+              this.reportProgress(processedCount, allPlaylists.length);
+            }
+          })
+        );
+      }
+      
+      // Limpar o cache de pesquisa após a atualização
+      this.searchCache.clear();
+      
+      const endTime = Date.now();
+      const duration = (endTime - startTime) / 1000;
+      console.log(`Atualização completa! ${allPlaylists.length} playlists atualizadas em ${duration.toFixed(2)}s`);
     } catch (error) {
       console.error('Erro ao agendar atualizações de playlists:', error);
     }
+  }
+
+  // Limpar todos os caches
+  clearCache(): void {
+    console.log('Limpando todos os caches de dados...');
+    this.playlistCache.clear();
+    this.searchCache.clear();
+    localStorage.removeItem('lastDataUpdate');
+    console.log('Caches limpos com sucesso');
   }
 }
 

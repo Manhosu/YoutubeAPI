@@ -152,7 +152,7 @@ button, .btn-primary, .btn-secondary, a.btn-primary, a.btn-secondary {
   from {
     opacity: 0;
     transform: translateX(-20px);
-  }
+}
   to {
     opacity: 1;
     transform: translateX(0);
@@ -293,7 +293,7 @@ button, .btn-primary, .btn-secondary, a.btn-primary, a.btn-secondary {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-secondary);
-}
+  }
 
 /* Página transitions */
 .page-transition {
@@ -359,7 +359,7 @@ button, .btn-primary, .btn-secondary, a.btn-primary, a.btn-secondary {
 
 .react-datepicker__navigation-icon::before {
   @apply border-gray-400;
-}
+  }
 
 .react-datepicker__day--outside-month {
   @apply text-gray-500;

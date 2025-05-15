@@ -26,6 +26,9 @@ const Dashboard = () => {
   const [searchType, setSearchType] = useState<SearchType>('title');
   const [videoSearchResults, setVideoSearchResults] = useState<PlaylistWithFoundVideos[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchProgress, setSearchProgress] = useState(0);
+  const [totalPlaylistsToSearch, setTotalPlaylistsToSearch] = useState(0);
+  const [searchStartTime, setSearchStartTime] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -123,8 +126,24 @@ const Dashboard = () => {
     
     setSearching(true);
     setError(null);
+    setVideoSearchResults([]);
+    setSearchProgress(0);
+    setTotalPlaylistsToSearch(0);
+    setSearchStartTime(Date.now());
     
     try {
+      // Feedback inicial para o usuário
+      const allPlaylists = await youtubeService.getAllPlaylists();
+      setTotalPlaylistsToSearch(allPlaylists.length);
+      
+      // Criar um listener para acompanhar o progresso
+      const progressListener = (progress: number, _total: number) => {
+        setSearchProgress(progress);
+      };
+      
+      // Adicionar listener antes da pesquisa
+      youtubeService.setProgressListener(progressListener);
+      
       let results: PlaylistWithFoundVideos[] = [];
       
       // Realizar a pesquisa com base no tipo selecionado
@@ -161,6 +180,12 @@ const Dashboard = () => {
         }
       }
       
+      // Remover listener após pesquisa
+      youtubeService.setProgressListener(null);
+      
+      // Ordenar resultados por relevância ou título da playlist
+      results.sort((a, b) => a.playlist.title.localeCompare(b.playlist.title));
+      
       setVideoSearchResults(results);
       
       if (results.length === 0) {
@@ -169,8 +194,11 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Erro ao pesquisar vídeos:', err);
       setError('Ocorreu um erro ao pesquisar vídeos nas playlists.');
+      // Remover listener em caso de erro
+      youtubeService.setProgressListener(null);
     } finally {
       setSearching(false);
+      setSearchStartTime(null);
     }
   };
 
@@ -185,6 +213,29 @@ const Dashboard = () => {
   // Formatar número com separadores de milhar
   const formatNumber = (num: number): string => {
     return new Intl.NumberFormat('pt-BR').format(num);
+  };
+
+  // Calcular tempo estimado restante
+  const getEstimatedTimeRemaining = () => {
+    if (!searchStartTime || searchProgress === 0) return null;
+    
+    const elapsedMs = Date.now() - searchStartTime;
+    const progressPercent = searchProgress / totalPlaylistsToSearch;
+    
+    if (progressPercent === 0) return null;
+    
+    // Estimar tempo total com base no tempo decorrido e progresso atual
+    const estimatedTotalMs = elapsedMs / progressPercent;
+    const remainingMs = Math.max(0, estimatedTotalMs - elapsedMs);
+    
+    if (remainingMs <= 0) return "Finalizando...";
+    
+    const remainingSec = Math.round(remainingMs / 1000);
+    if (remainingSec < 60) return `${remainingSec} segundos`;
+    
+    const remainingMin = Math.floor(remainingSec / 60);
+    const sec = remainingSec % 60;
+    return `${remainingMin}m ${sec}s`;
   };
 
   return (
@@ -345,6 +396,26 @@ const Dashboard = () => {
                 </div>
               </div>
             </form>
+            
+            {/* Indicador de progresso durante a pesquisa */}
+            {searching && (
+              <div className="mt-6">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-sm text-gray-300">
+                    Pesquisando em playlists: {searchProgress}/{totalPlaylistsToSearch}
+                  </div>
+                  <div className="text-sm text-gray-300">
+                    {getEstimatedTimeRemaining() ? `Tempo restante: ${getEstimatedTimeRemaining()}` : 'Calculando tempo...'}
+                  </div>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-red-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ width: `${totalPlaylistsToSearch ? (searchProgress / totalPlaylistsToSearch) * 100 : 0}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
         
