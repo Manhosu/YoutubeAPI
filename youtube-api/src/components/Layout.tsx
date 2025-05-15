@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import CacheManager from './CacheManager';
+import AccountManager from './AccountManager';
 
 interface LayoutProps {
   children: ReactNode;
@@ -70,6 +72,19 @@ const Layout = ({ children }: LayoutProps) => {
                   <span className="transition-colors duration-300">Painel</span>
                   <span className={`absolute -bottom-0.5 left-0 w-full h-0.5 bg-red-600 transform ${isActive('/dashboard') ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'} transition-transform duration-300 origin-left`}></span>
                 </Link>
+                <CacheManager />
+                <AccountManager />
+                <Link 
+                  to="/consolidated-report" 
+                  className={`font-medium relative overflow-hidden group ${isActive('/consolidated-report') ? 'text-blue-400' : 'text-[var(--text-secondary)] hover:text-white'}`}
+                >
+                  <span className="transition-colors duration-300 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                    </svg>
+                    Relatório
+                  </span>
+                </Link>
                 <button 
                   onClick={signOut}
                   className="btn-primary text-sm"
@@ -127,6 +142,22 @@ const Layout = ({ children }: LayoutProps) => {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Painel
+                  </Link>
+                  <div className="flex items-center justify-between py-2 px-4 border-b border-gray-800">
+                    <AccountManager className="w-full" />
+                  </div>
+                  <div className="flex items-center justify-between py-2 px-4 border-b border-gray-800">
+                    <CacheManager className="w-full" />
+                  </div>
+                  <Link 
+                    to="/consolidated-report" 
+                    className="py-2 px-4 flex items-center text-blue-400 hover:bg-gray-800/50 rounded-md"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                    </svg>
+                    Relatório Consolidado
                   </Link>
                   <div className="flex items-center justify-between py-2 px-4">
                     <div className="flex items-center">

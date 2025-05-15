@@ -364,3 +364,17 @@ button, .btn-primary, .btn-secondary, a.btn-primary, a.btn-secondary {
 .react-datepicker__day--outside-month {
   @apply text-gray-500;
 }
+
+/* DateRangePicker custom styles */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+  cursor: pointer;
+}
+
+.absolute {
+  z-index: 9999;
+}

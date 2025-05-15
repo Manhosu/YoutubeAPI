@@ -116,7 +116,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log('URL de redirecionamento:', redirectUrl);
       
       // Iniciar o fluxo de OAuth
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: redirectUrl,
@@ -128,8 +128,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Erro ao iniciar autenticação OAuth:', error);
+        throw error;
+      }
       
+      console.log('Resultado da autenticação:', data);
       console.log('Redirecionando para Google...');
     } catch (error) {
       console.error('Erro na autenticação Google:', error);

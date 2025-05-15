@@ -1,18 +1,27 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { MultiAccountProvider } from './contexts/MultiAccountContext';
 import { supabase } from './lib/supabase';
+import './App.css';
+
+// Componentes
+import Layout from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
+
+// Páginas
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Search from './pages/Search';
 import PlaylistDetails from './pages/PlaylistDetails';
+import ConsolidatedReport from './pages/ConsolidatedReport';
+import AuthCallback from './pages/AuthCallback';
 import Fallback from './components/Fallback';
-import ErrorBoundary from './components/ErrorBoundary';
 import DataRefresher from './components/DataRefresher';
 
 // Componente para receber o callback OAuth e redirecionar para o dashboard
-const AuthCallback = () => {
+const OAuth2Callback = () => {
   const { isLoading, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -163,31 +172,38 @@ function App() {
     <ErrorBoundary fallback={emergencyFallback}>
       <div style={appStyle} className="app-container">
         <AuthProvider>
-          <Router>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/dashboard" element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } />
-              <Route path="/search" element={
-                <ProtectedRoute>
-                  <Search />
-                </ProtectedRoute>
-              } />
-              <Route path="/playlist/:id" element={
-                <ProtectedRoute>
-                  <PlaylistDetails />
-                </ProtectedRoute>
-              } />
-              <Route path="/auth/callback" element={<AuthCallback />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-            {/* Componente invisível para gerenciar atualizações automáticas de dados */}
-            <DataRefresher />
-          </Router>
+          <MultiAccountProvider>
+            <Router>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/auth/callback" element={<OAuth2Callback />} />
+                <Route path="/dashboard" element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } />
+                <Route path="/search" element={
+                  <ProtectedRoute>
+                    <Search />
+                  </ProtectedRoute>
+                } />
+                <Route path="/playlist/:id" element={
+                  <ProtectedRoute>
+                    <PlaylistDetails />
+                  </ProtectedRoute>
+                } />
+                <Route path="/consolidated-report" element={
+                  <ProtectedRoute>
+                    <ConsolidatedReport />
+                  </ProtectedRoute>
+                } />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+              {/* Componente invisível para gerenciar atualizações automáticas de dados */}
+              <DataRefresher />
+            </Router>
+          </MultiAccountProvider>
         </AuthProvider>
       </div>
     </ErrorBoundary>

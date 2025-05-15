@@ -62,36 +62,35 @@ export interface PlaylistWithFoundVideos {
 }
 
 class YoutubeService {
-  // Cache para armazenar temporariamente os dados das playlists
+  // Cache para armazenar temporariamente os dados das playlists e outros recursos
   private playlistCache: Map<string, { data: PlaylistVideoItem[], timestamp: number }> = new Map();
+  private channelsCache: { data: YoutubeChannel[], timestamp: number } | null = null;
+  private myPlaylistsCache: { playlists: YoutubePlaylist[], nextPageToken?: string, timestamp: number } | null = null;
+  private videoCache: Map<string, { data: YoutubeVideo, timestamp: number }> = new Map();
   
-  // Cache de resultados de pesquisa para evitar repetição de buscas frequentes
-  private searchCache: Map<string, { results: PlaylistWithFoundVideos[], timestamp: number }> = new Map();
+  // Cache específico por conta (userId -> cache)
+  private accountPlaylistCache: Map<string, Map<string, { data: PlaylistVideoItem[], timestamp: number }>> = new Map();
+  private accountChannelsCache: Map<string, { data: YoutubeChannel[], timestamp: number }> = new Map();
+  private accountPlaylistsCache: Map<string, { playlists: YoutubePlaylist[], nextPageToken?: string, timestamp: number }> = new Map();
   
-  // Intervalo de atualização (3 horas em milissegundos)
-  private readonly REFRESH_INTERVAL = 3 * 60 * 60 * 1000;
+  // Mapeamento de token para userId
+  private tokenToUserIdMap: Map<string, string> = new Map();
   
-  // Intervalo de validade do cache de pesquisa (10 minutos)
-  private readonly SEARCH_CACHE_TTL = 10 * 60 * 1000;
+  // Intervalo de atualização (aumentado para 48 horas para economizar quotas)
+  private readonly REFRESH_INTERVAL = 48 * 60 * 60 * 1000;
+  
+  // Limite máximo de IDs por requisição em batch
+  private readonly MAX_BATCH_SIZE = 50;
 
-  // Callback para reportar progresso
-  private progressCallback: ((current: number, total: number) => void) | null = null;
-  
-  // Definir o callback de progresso
-  setProgressListener(callback: ((current: number, total: number) => void) | null): void {
-    this.progressCallback = callback;
-  }
-  
-  // Método para reportar progresso
-  private reportProgress(current: number, total: number): void {
-    if (this.progressCallback) {
-      this.progressCallback(current, total);
-    }
-  }
-
-  // Obter o token de acesso do usuário logado
-  private async getAccessToken(): Promise<string | null> {
+  // Obter o token de acesso do usuário logado ou usar um token específico
+  private async getAccessToken(providedToken?: string): Promise<string | null> {
     try {
+      // Se um token específico for fornecido, usá-lo
+      if (providedToken) {
+        return providedToken;
+      }
+      
+      // Caso contrário, buscar o token da sessão atual
       const session = await supabase.auth.getSession();
       const provider = session?.data?.session?.provider_token;
       
@@ -107,9 +106,9 @@ class YoutubeService {
     }
   }
 
-  // Fazer uma requisição para a API do YouTube
-  private async fetchFromYoutube(endpoint: string, params: Record<string, string> = {}): Promise<any> {
-    const accessToken = await this.getAccessToken();
+  // Fazer uma requisição para a API do YouTube com token opcional
+  private async fetchFromYoutube(endpoint: string, params: Record<string, string> = {}, providedToken?: string): Promise<any> {
+    const accessToken = await this.getAccessToken(providedToken);
     
     if (!accessToken) {
       throw new Error('Token de acesso não encontrado.');
@@ -131,6 +130,9 @@ class YoutubeService {
       });
       
       if (!response.ok) {
+        console.error(`API YouTube respondeu com status: ${response.status} ${response.statusText}`);
+        const responseText = await response.text().catch(() => 'Não foi possível ler o corpo da resposta');
+        console.error(`Detalhes da resposta:`, responseText);
         throw new Error(`Erro na API do YouTube: ${response.status} ${response.statusText}`);
       }
       
@@ -141,32 +143,111 @@ class YoutubeService {
     }
   }
   
-  // Listar canais do usuário autenticado
-  async getMyChannels(): Promise<YoutubeChannel[]> {
+  // Verificar se os dados em cache precisam ser atualizados
+  private needsRefresh(timestamp: number): boolean {
+    if (!timestamp) return true;
+    const now = Date.now();
+    return (now - timestamp) > this.REFRESH_INTERVAL;
+  }
+  
+  // Obter o cache específico de uma conta ou o cache padrão
+  private getAccountSpecificCache<T>(
+    accountId: string | undefined, 
+    accountCacheMap: Map<string, T>, 
+    defaultCache: T
+  ): T {
+    if (accountId && accountCacheMap.has(accountId)) {
+      return accountCacheMap.get(accountId)!;
+    }
+    return defaultCache;
+  }
+  
+  // Listar canais do usuário autenticado (com cache)
+  async getMyChannels(accountId?: string, providedToken?: string): Promise<YoutubeChannel[]> {
     try {
-      const data = await this.fetchFromYoutube('channels', {
-        'part': 'snippet,contentDetails,statistics',
-        'mine': 'true'
-      });
+      // Verificar cache por conta específica
+      if (accountId && this.accountChannelsCache.has(accountId)) {
+        const cache = this.accountChannelsCache.get(accountId)!;
+        if (!this.needsRefresh(cache.timestamp)) {
+          console.log('Usando dados em cache para canais da conta:', accountId);
+          return cache.data;
+        }
+      } else if (!accountId && this.channelsCache && !this.needsRefresh(this.channelsCache.timestamp)) {
+        console.log('Usando dados em cache para canais');
+        return this.channelsCache.data;
+      }
       
-      return data.items.map((item: any) => ({
+      const data = await this.fetchFromYoutube('channels', {
+        'part': 'snippet,contentDetails',
+        'mine': 'true'
+      }, providedToken);
+      
+      const channels = data.items.map((item: any) => ({
         id: item.id,
         title: item.snippet.title,
-        thumbnailUrl: item.snippet.thumbnails.default.url || item.snippet.thumbnails.medium.url,
+        thumbnailUrl: item.snippet.thumbnails.default?.url || item.snippet.thumbnails.medium?.url,
         customUrl: item.snippet.customUrl
       }));
+      
+      // Armazenar em cache (específico por conta ou cache padrão)
+      if (accountId) {
+        this.accountChannelsCache.set(accountId, {
+          data: channels,
+          timestamp: Date.now()
+        });
+        
+        // Se um token específico foi fornecido, mapeá-lo ao accountId
+        if (providedToken) {
+          this.tokenToUserIdMap.set(providedToken, accountId);
+        }
+      } else {
+        this.channelsCache = {
+          data: channels,
+          timestamp: Date.now()
+        };
+      }
+      
+      return channels;
     } catch (error) {
       console.error('Erro ao obter canais:', error);
+      // Se houver erro mas tivermos dados em cache, retornar os dados em cache mesmo que antigos
+      if (accountId && this.accountChannelsCache.has(accountId)) {
+        console.log('Retornando dados em cache antigos para canais da conta:', accountId);
+        return this.accountChannelsCache.get(accountId)!.data;
+      } else if (this.channelsCache) {
+        console.log('Retornando dados em cache antigos para canais devido a erro');
+        return this.channelsCache.data;
+      }
       return [];
     }
   }
   
-  // Listar playlists do usuário
-  async getMyPlaylists(pageToken?: string): Promise<{ playlists: YoutubePlaylist[], nextPageToken?: string }> {
+  // Listar playlists do usuário (com cache otimizado)
+  async getMyPlaylists(pageToken?: string, accountId?: string, providedToken?: string): Promise<{ playlists: YoutubePlaylist[], nextPageToken?: string }> {
     try {
+      // Verificar cache específico por conta ou cache padrão
+      if (!pageToken) {
+        if (accountId && this.accountPlaylistsCache.has(accountId)) {
+          const cache = this.accountPlaylistsCache.get(accountId)!;
+          if (!this.needsRefresh(cache.timestamp)) {
+            console.log('Usando dados em cache para playlists da conta:', accountId);
+            return {
+              playlists: cache.playlists,
+              nextPageToken: cache.nextPageToken
+            };
+          }
+        } else if (!accountId && this.myPlaylistsCache && !this.needsRefresh(this.myPlaylistsCache.timestamp)) {
+          console.log('Usando dados em cache para playlists');
+          return {
+            playlists: this.myPlaylistsCache.playlists,
+            nextPageToken: this.myPlaylistsCache.nextPageToken
+          };
+        }
+      }
+      
       const params: Record<string, string> = {
         'part': 'snippet,contentDetails',
-        'maxResults': '50',
+        'maxResults': '50', // Maximizar para reduzir número de chamadas
         'mine': 'true'
       };
       
@@ -174,7 +255,7 @@ class YoutubeService {
         params.pageToken = pageToken;
       }
       
-      const data = await this.fetchFromYoutube('playlists', params);
+      const data = await this.fetchFromYoutube('playlists', params, providedToken);
       
       const playlists = data.items.map((item: any) => ({
         id: item.id,
@@ -186,72 +267,326 @@ class YoutubeService {
         channelTitle: item.snippet.channelTitle
       }));
       
+      // Atualizar cache apenas se for a primeira página
+      if (!pageToken) {
+        const cacheEntry = {
+          playlists,
+          nextPageToken: data.nextPageToken,
+          timestamp: Date.now()
+        };
+        
+        if (accountId) {
+          this.accountPlaylistsCache.set(accountId, cacheEntry);
+          
+          // Se um token específico foi fornecido, mapeá-lo ao accountId
+          if (providedToken) {
+            this.tokenToUserIdMap.set(providedToken, accountId);
+          }
+        } else {
+          this.myPlaylistsCache = cacheEntry;
+        }
+      } else if (accountId && this.accountPlaylistsCache.has(accountId)) {
+        // Se for paginação, apenas atualizar o nextPageToken
+        const cache = this.accountPlaylistsCache.get(accountId)!;
+        cache.nextPageToken = data.nextPageToken;
+      } else if (this.myPlaylistsCache) {
+        // Se for paginação, apenas atualizar o nextPageToken
+        this.myPlaylistsCache.nextPageToken = data.nextPageToken;
+      }
+      
       return {
         playlists,
         nextPageToken: data.nextPageToken
       };
     } catch (error) {
       console.error('Erro ao obter playlists:', error);
+      // Se houver erro mas tivermos dados em cache, retornar os dados em cache mesmo que antigos
+      if (!pageToken) {
+        if (accountId && this.accountPlaylistsCache.has(accountId)) {
+          console.log('Retornando dados em cache antigos para playlists da conta:', accountId);
+          const cache = this.accountPlaylistsCache.get(accountId)!;
+          return {
+            playlists: cache.playlists,
+            nextPageToken: cache.nextPageToken
+          };
+        } else if (this.myPlaylistsCache) {
+          console.log('Retornando dados em cache antigos para playlists devido a erro');
+          return {
+            playlists: this.myPlaylistsCache.playlists,
+            nextPageToken: this.myPlaylistsCache.nextPageToken
+          };
+        }
+      }
       return { playlists: [] };
     }
   }
   
-  // Buscar playlists por ID de vídeo
-  async getPlaylistsByVideoId(videoId: string): Promise<YoutubePlaylist[]> {
-    try {
-      // Primeiro obtemos todas as playlists do usuário
-      const allPlaylists = await this.getAllPlaylists();
-      const playlistsWithVideo: YoutubePlaylist[] = [];
-      
-      // Para cada playlist, verificamos se o vídeo está presente
-      for (const playlist of allPlaylists) {
-        const items = await this.getPlaylistItems(playlist.id);
-        const videoExists = items.some(item => item.videoId === videoId);
+  // Obter dados de múltiplas contas para gerar relatório consolidado
+  async getConsolidatedData(accountIds: string[]): Promise<{
+    channels: YoutubeChannel[],
+    playlists: YoutubePlaylist[],
+    totalVideos: number,
+    totalViews: number
+  }> {
+    const channels: YoutubeChannel[] = [];
+    const playlists: YoutubePlaylist[] = [];
+    let totalVideos = 0;
+    let totalViews = 0;
+    
+    console.log(`Gerando relatório consolidado para ${accountIds.length} contas:`, accountIds);
+    
+    // Se nenhuma conta for fornecida, usar todas as contas disponíveis
+    if (accountIds.length === 0) {
+      try {
+        // Tentar obter contas do localStorage
+        const accountsJson = localStorage.getItem('youtube_analyzer_accounts');
+        if (accountsJson) {
+          const accounts = JSON.parse(accountsJson);
+          accountIds = accounts.map((acc: any) => acc.id);
+          console.log('Usando todas as contas disponíveis:', accountIds);
+        }
+      } catch (error) {
+        console.error('Erro ao obter contas do localStorage:', error);
+      }
+    }
+    
+    // Obter dados de cada conta
+    for (const accountId of accountIds) {
+      try {
+        console.log(`Buscando dados para conta ${accountId}...`);
         
-        if (videoExists) {
-          playlistsWithVideo.push(playlist);
+        // Obter canais
+        const accountChannels = await this.getMyChannels(accountId);
+        channels.push(...accountChannels);
+        
+        // Obter playlists
+        const { playlists: accountPlaylists } = await this.getMyPlaylists(undefined, accountId);
+        
+        console.log(`Encontradas ${accountPlaylists.length} playlists para a conta ${accountId}`);
+        
+        // Calcular estatísticas para cada playlist
+        for (const playlist of accountPlaylists) {
+          // Incrementar contador de vídeos
+          totalVideos += playlist.itemCount;
+          
+          // Tentar obter visualizações da playlist
+          try {
+            console.log(`Buscando itens da playlist ${playlist.id}...`);
+            
+            // Forçar atualização para obter os dados mais recentes
+            const playlistItems = await this.getPlaylistItems(playlist.id, undefined, true, accountId);
+            
+            // Somar visualizações
+            const playlistViews = playlistItems.reduce((sum, item) => {
+              const views = item.viewCount || 0;
+              if (views > 0) {
+                console.log(`Vídeo ${item.videoId}: ${views} visualizações`);
+              }
+              return sum + views;
+            }, 0);
+            
+            console.log(`Playlist ${playlist.id} tem ${playlistViews} visualizações totais`);
+            totalViews += playlistViews;
+            
+            // Adicionar dado de visualizações à playlist
+            playlist.totalViews = playlistViews;
+          } catch (error) {
+            console.error(`Erro ao obter estatísticas da playlist ${playlist.id}:`, error);
+          }
+        }
+        
+        playlists.push(...accountPlaylists);
+      } catch (error) {
+        console.error(`Erro ao obter dados da conta ${accountId}:`, error);
+      }
+    }
+    
+    console.log(`Relatório consolidado: ${totalVideos} vídeos, ${totalViews} visualizações totais`);
+    
+    return {
+      channels,
+      playlists,
+      totalVideos,
+      totalViews
+    };
+  }
+  
+  // Método para obter uma playlist específica pelo ID
+  async getPlaylistById(playlistId: string, accountId?: string): Promise<YoutubePlaylist | null> {
+    try {
+      console.log(`Buscando playlist ${playlistId} diretamente...`);
+      // Obter token de acesso específico da conta, se fornecido
+      let token;
+      if (accountId) {
+        // Tentar buscar o token do mapeamento ou da sessão
+        const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
+        const account = accounts.find((acc: any) => acc.id === accountId);
+        if (account && account.providerToken) {
+          token = account.providerToken;
+        } else {
+          // Se não encontrar o token no localStorage, buscar da sessão
+          try {
+            const session = await supabase.auth.getSession();
+            token = session?.data?.session?.provider_token;
+            console.log('Usando token da sessão atual');
+          } catch (error) {
+            console.error('Erro ao obter token da sessão:', error);
+          }
         }
       }
       
-      return playlistsWithVideo;
+      // Parâmetros para a requisição
+      const params: Record<string, string> = {
+        'part': 'snippet,contentDetails',
+        'id': playlistId
+      };
+      
+      // Fazer a requisição com o token apropriado
+      const data = await this.fetchFromYoutube('playlists', params, token);
+      
+      if (!data.items || data.items.length === 0) {
+        console.log(`Playlist ${playlistId} não encontrada via API`);
+        return null;
+      }
+      
+      const playlistData = data.items[0];
+      
+      // Converter para o formato da nossa interface
+      const playlist: YoutubePlaylist = {
+        id: playlistData.id,
+        title: playlistData.snippet.title,
+        description: playlistData.snippet.description || '',
+        thumbnailUrl: 
+          playlistData.snippet.thumbnails?.high?.url || 
+          playlistData.snippet.thumbnails?.medium?.url || 
+          playlistData.snippet.thumbnails?.default?.url,
+        itemCount: playlistData.contentDetails.itemCount,
+        channelId: playlistData.snippet.channelId,
+        channelTitle: playlistData.snippet.channelTitle
+      };
+      
+      console.log(`Playlist ${playlistId} encontrada:`, playlist.title);
+      return playlist;
     } catch (error) {
-      console.error('Erro ao buscar playlists por ID de vídeo:', error);
+      console.error(`Erro ao buscar playlist ${playlistId}:`, error);
+      return null;
+    }
+  }
+  
+  // Método para buscar vídeos em uma playlist específica
+  async searchVideosInPlaylist(
+    playlistId: string,
+    searchTerm: string,
+    searchType: 'title' | 'id' | 'url' = 'title',
+    accountId?: string
+  ): Promise<PlaylistVideoItem[]> {
+    try {
+      // Primeiro, obter todos os itens da playlist
+      const allItems = await this.getPlaylistItems(playlistId, undefined, false, accountId);
+      
+      if (searchType === 'title') {
+        // Pesquisar por título (insensível a maiúsculas/minúsculas e acentos)
+        const normalizedTerm = searchTerm.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        
+        return allItems.filter(item => {
+          const normalizedTitle = item.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          return normalizedTitle.includes(normalizedTerm);
+        });
+      } else if (searchType === 'id') {
+        // Pesquisar por ID exato
+        return allItems.filter(item => item.videoId === searchTerm);
+      } else if (searchType === 'url') {
+        // Extrair ID do vídeo da URL e pesquisar
+        const videoId = this.extractVideoId(searchTerm);
+        if (!videoId) return [];
+        
+        return allItems.filter(item => item.videoId === videoId);
+      }
+      
+      return [];
+    } catch (error) {
+      console.error(`Erro ao pesquisar vídeos na playlist ${playlistId}:`, error);
       return [];
     }
   }
   
-  // Obter todas as playlists (incluindo paginação)
-  async getAllPlaylists(): Promise<YoutubePlaylist[]> {
-    let allPlaylists: YoutubePlaylist[] = [];
-    let nextPageToken: string | undefined = undefined;
-    
-    do {
-      const result = await this.getMyPlaylists(nextPageToken);
-      allPlaylists = [...allPlaylists, ...result.playlists];
-      nextPageToken = result.nextPageToken;
-    } while (nextPageToken);
-    
-    return allPlaylists;
+  // Método auxiliar para extrair o ID do vídeo de uma URL do YouTube
+  private extractVideoId(url: string): string | null {
+    try {
+      // Padrões comuns de URL do YouTube
+      const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/watch\?.*v=|youtube\.com\/watch\?.*&v=)([^&\?#]+)/,
+        /youtube\.com\/watch\?.*&v=([^&\?#]+)/,
+        /youtube\.com\/shorts\/([^&\?#]+)/
+      ];
+      
+      for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match && match[1]) {
+          return match[1];
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Erro ao extrair ID do vídeo da URL:', error);
+      return null;
+    }
   }
-  
-  // Verificar se os dados de uma playlist precisam ser atualizados
-  private needsRefresh(playlistId: string): boolean {
-    const cachedData = this.playlistCache.get(playlistId);
-    if (!cachedData) return true;
-    
-    const now = Date.now();
-    return (now - cachedData.timestamp) > this.REFRESH_INTERVAL;
-  }
-  
-  // Obter itens de uma playlist com dados de visualização e opção de refresh
-  async getPlaylistItems(playlistId: string, pageToken?: string, forceRefresh = false): Promise<PlaylistVideoItem[]> {
-    // Verificar se temos dados em cache e se eles ainda são válidos
-    if (!forceRefresh && this.playlistCache.has(playlistId) && !this.needsRefresh(playlistId)) {
-      console.log(`Usando dados em cache para a playlist ${playlistId}`);
-      return this.playlistCache.get(playlistId)!.data;
+
+  // Método para limpar cache específico de uma conta
+  clearCache(accountId?: string): void {
+    if (accountId) {
+      console.log(`Limpando cache para a conta ${accountId}`);
+      this.accountChannelsCache.delete(accountId);
+      this.accountPlaylistsCache.delete(accountId);
+      this.accountPlaylistCache.delete(accountId);
+    } else {
+      console.log('Limpando todo o cache');
+      this.channelsCache = null;
+      this.myPlaylistsCache = null;
+      this.playlistCache.clear();
+      this.videoCache.clear();
     }
     
+    // Persistir alterações
+    this.persistCache();
+  }
+  
+  // Método para obter itens de uma playlist com estatísticas
+  async getPlaylistItems(
+    playlistId: string, 
+    pageToken?: string, 
+    forceRefresh = false,
+    accountId?: string,
+    providedToken?: string
+  ): Promise<PlaylistVideoItem[]> {
     try {
+      // Verificar cache específico por conta ou cache padrão
+      const cacheKey = playlistId;
+      let playlistItemsCache: Map<string, { data: PlaylistVideoItem[], timestamp: number }>;
+      
+      // Determinar qual cache usar com base no accountId
+      if (accountId) {
+        if (!this.accountPlaylistCache.has(accountId)) {
+          this.accountPlaylistCache.set(accountId, new Map());
+        }
+        playlistItemsCache = this.accountPlaylistCache.get(accountId)!;
+      } else {
+        playlistItemsCache = this.playlistCache;
+      }
+      
+      // Verificar se temos dados em cache e se não está forçando atualização
+      if (!forceRefresh && playlistItemsCache.has(cacheKey) && !this.needsRefresh(playlistItemsCache.get(cacheKey)!.timestamp)) {
+        console.log(`Usando cache para itens da playlist ${playlistId}`);
+        return playlistItemsCache.get(cacheKey)!.data;
+      }
+      
+      // Se estamos buscando a primeira página ou forçando atualização, resetar os itens
+      const allItems: PlaylistVideoItem[] = pageToken ? 
+        (playlistItemsCache.get(cacheKey)?.data || []) : [];
+      
+      // Parâmetros para a requisição
       const params: Record<string, string> = {
         'part': 'snippet,contentDetails',
         'maxResults': '50',
@@ -262,413 +597,923 @@ class YoutubeService {
         params.pageToken = pageToken;
       }
       
-      const data = await this.fetchFromYoutube('playlistItems', params);
+      // Obter token de acesso específico da conta, se fornecido
+      let token = providedToken;
+      if (!token && accountId) {
+        // Tentar buscar o token do mapeamento
+        const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
+        const account = accounts.find((acc: any) => acc.id === accountId);
+        if (account && account.providerToken) {
+          token = account.providerToken;
+        }
+      }
       
-      // Mapear os itens básicos
-      const items = data.items.map((item: any) => ({
-        playlistId: playlistId,
+      // Fazer a requisição com o token apropriado
+      const data = await this.fetchFromYoutube('playlistItems', params, token);
+      
+      // Processar os itens recebidos
+      const items = data.items.map((item: any, index: number) => ({
+        playlistId,
         videoId: item.contentDetails.videoId,
         title: item.snippet.title,
-        thumbnailUrl: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+        thumbnailUrl: 
+          item.snippet.thumbnails?.high?.url || 
+          item.snippet.thumbnails?.medium?.url || 
+          item.snippet.thumbnails?.default?.url,
         position: item.snippet.position,
         channelTitle: item.snippet.channelTitle,
         publishedAt: item.snippet.publishedAt
       }));
       
-      // Obter dados completos dos vídeos (incluindo estatísticas) em lotes
-      const videoIds = items.map((item: PlaylistVideoItem) => item.videoId).join(',');
-      const videoData = await this.fetchFromYoutube('videos', {
-        'part': 'statistics,snippet',
-        'id': videoIds
-      });
+      // Adicionar os novos itens à lista
+      allItems.push(...items);
       
-      // Adicionar contagens de visualizações aos itens da playlist
-      const itemsWithStats = items.map((item: PlaylistVideoItem) => {
-        const videoStats = videoData.items.find((v: { id: string; statistics: any }) => v.id === item.videoId);
-        return {
-          ...item,
-          viewCount: videoStats ? parseInt(videoStats.statistics.viewCount || '0', 10) : 0,
-          likeCount: videoStats ? parseInt(videoStats.statistics.likeCount || '0', 10) : 0,
-          dislikeCount: videoStats ? parseInt(videoStats.statistics.dislikeCount || '0', 10) : 0,
-          lastUpdated: new Date().toISOString()
-        };
-      });
-      
-      // Carregar recursivamente todas as páginas
-      let allItems = [...itemsWithStats];
+      // Se houver mais páginas, buscar recursivamente
       if (data.nextPageToken) {
-        const nextItems = await this.getPlaylistItems(playlistId, data.nextPageToken);
-        allItems = [...allItems, ...nextItems];
+        const nextPageItems = await this.getPlaylistItems(
+          playlistId, 
+          data.nextPageToken, 
+          false, 
+          accountId,
+          token
+        );
+        allItems.push(...nextPageItems);
       }
       
-      // Armazenar em cache
-      this.playlistCache.set(playlistId, {
+      // Agora buscar estatísticas dos vídeos em lote
+      await this.addVideoStatistics(allItems, accountId, token);
+      
+      // Armazenar no cache
+      playlistItemsCache.set(cacheKey, {
         data: allItems,
         timestamp: Date.now()
       });
       
+      // Persistir cache
+      this.persistCache();
+      
       return allItems;
     } catch (error) {
       console.error(`Erro ao obter itens da playlist ${playlistId}:`, error);
+      
+      // Tentar retornar do cache mesmo que antigo
+      const cacheMap = accountId ? 
+        (this.accountPlaylistCache.get(accountId) || new Map()) : 
+        this.playlistCache;
+      
+      if (cacheMap.has(playlistId)) {
+        console.log(`Retornando dados em cache antigos para playlist ${playlistId} devido a erro`);
+        return cacheMap.get(playlistId)!.data;
+      }
+      
       return [];
     }
   }
   
-  // Calcular o total de visualizações de uma playlist
-  async getPlaylistTotalViews(playlistId: string): Promise<number> {
+  // Método auxiliar para adicionar estatísticas aos vídeos de uma playlist
+  private async addVideoStatistics(
+    items: PlaylistVideoItem[], 
+    accountId?: string,
+    providedToken?: string
+  ): Promise<void> {
     try {
-      const items = await this.getPlaylistItems(playlistId);
-      return items.reduce((total, video) => total + (video.viewCount || 0), 0);
-    } catch (error) {
-      console.error(`Erro ao calcular visualizações totais da playlist ${playlistId}:`, error);
-      return 0;
-    }
-  }
-  
-  // Pesquisar vídeos dentro de uma playlist específica
-  async searchVideosInPlaylist(playlistId: string, query: string, searchType: 'title' | 'id' | 'url' = 'title'): Promise<PlaylistVideoItem[]> {
-    try {
-      const allVideos = await this.getPlaylistItems(playlistId);
-      
-      switch (searchType) {
-        case 'title':
-          return allVideos.filter(video => 
-            video.title.toLowerCase().includes(query.toLowerCase())
-          );
-          
-        case 'id':
-          return allVideos.filter(video => video.videoId === query);
-          
-        case 'url': {
-          const videoId = this.extractVideoIdFromUrl(query);
-          return videoId ? allVideos.filter(video => video.videoId === videoId) : [];
-        }
-          
-        default:
-          return [];
-      }
-    } catch (error) {
-      console.error(`Erro ao pesquisar vídeos na playlist ${playlistId}:`, error);
-      return [];
-    }
-  }
-  
-  // Buscar vídeo por ID
-  async getVideoById(videoId: string): Promise<YoutubeVideo | null> {
-    try {
-      const data = await this.fetchFromYoutube('videos', {
-        'part': 'snippet,statistics',
-        'id': videoId
-      });
-      
-      if (!data.items || data.items.length === 0) {
-        return null;
-      }
-      
-      const item = data.items[0];
-      const playlists = await this.getPlaylistsByVideoId(videoId);
-      
-      return {
-        id: item.id,
-        title: item.snippet.title,
-        description: item.snippet.description,
-        thumbnailUrl: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
-        channelId: item.snippet.channelId,
-        channelTitle: item.snippet.channelTitle,
-        viewCount: parseInt(item.statistics.viewCount || '0', 10),
-        likeCount: parseInt(item.statistics.likeCount || '0', 10),
-        dislikeCount: parseInt(item.statistics.dislikeCount || '0', 10),
-        publishedAt: item.snippet.publishedAt,
-        lastUpdated: new Date().toISOString(),
-        playlists
-      };
-    } catch (error) {
-      console.error('Erro ao obter vídeo por ID:', error);
-      return null;
-    }
-  }
-  
-  // Buscar vídeo por URL
-  async getVideoByUrl(url: string): Promise<YoutubeVideo | null> {
-    try {
-      // Extrair ID do vídeo da URL
-      const videoId = this.extractVideoIdFromUrl(url);
-      
-      if (!videoId) {
-        throw new Error('URL de vídeo inválida');
-      }
-      
-      return await this.getVideoById(videoId);
-    } catch (error) {
-      console.error('Erro ao obter vídeo por URL:', error);
-      return null;
-    }
-  }
-  
-  // Buscar vídeos por título
-  async searchVideosByTitle(title: string): Promise<YoutubeVideo[]> {
-    try {
-      const data = await this.fetchFromYoutube('search', {
-        'part': 'snippet',
-        'maxResults': '10',
-        'q': title,
-        'type': 'video',
-        'forMine': 'true'
-      });
-      
-      if (!data.items || data.items.length === 0) {
-        return [];
-      }
-      
-      const videos: YoutubeVideo[] = [];
-      
-      for (const item of data.items) {
-        const videoId = item.id.videoId;
-        const video = await this.getVideoById(videoId);
+      // Processar em lotes do tamanho máximo permitido
+      for (let i = 0; i < items.length; i += this.MAX_BATCH_SIZE) {
+        const batch = items.slice(i, i + this.MAX_BATCH_SIZE);
+        const videoIds = batch.map(item => item.videoId).join(',');
         
-        if (video) {
-          videos.push(video);
-        }
-      }
-      
-      return videos;
-    } catch (error) {
-      console.error('Erro ao buscar vídeos por título:', error);
-      return [];
-    }
-  }
-  
-  // Pesquisar vídeo em todas as playlists
-  async searchVideoAcrossPlaylists(query: string): Promise<PlaylistWithFoundVideos[]> {
-    try {
-      // Verificar se temos resultado em cache
-      const cacheKey = `search_${query.toLowerCase().trim()}`;
-      if (this.searchCache.has(cacheKey)) {
-        const cachedData = this.searchCache.get(cacheKey)!;
-        const now = Date.now();
-        // Usar cache se tiver menos de 10 minutos
-        if (now - cachedData.timestamp < this.SEARCH_CACHE_TTL) {
-          console.log(`Usando resultados de pesquisa em cache para "${query}"`);
-          return cachedData.results;
-        }
-      }
-      
-      console.log(`Iniciando pesquisa para "${query}" em todas as playlists`);
-      
-      // Obter todas as playlists do usuário
-      const allPlaylists = await this.getAllPlaylists();
-      console.log(`Total de playlists a pesquisar: ${allPlaylists.length}`);
-      this.reportProgress(0, allPlaylists.length);
-      
-      // Dividir playlists em lotes para processamento paralelo
-      const batchSize = 5; // Reduzir o tamanho do lote para processar mais gradualmente
-      const batches = [];
-      
-      for (let i = 0; i < allPlaylists.length; i += batchSize) {
-        batches.push(allPlaylists.slice(i, i + batchSize));
-      }
-      
-      console.log(`Dividido em ${batches.length} lotes para processamento otimizado`);
-      
-      const results: PlaylistWithFoundVideos[] = [];
-      let processedCount = 0;
-      
-      // Processar lotes sequencialmente para melhor controle do progresso
-      for (const batch of batches) {
-        // Para cada lote, processar playlists em paralelo
-        const batchResults = await Promise.all(
-          batch.map(async (playlist) => {
-            try {
-              const matchingVideos = await this.searchVideosInPlaylist(playlist.id, query);
-              
-              // Atualizar o contador de progresso independentemente do resultado
-              processedCount++;
-              this.reportProgress(processedCount, allPlaylists.length);
-              
-              if (matchingVideos.length > 0) {
-                return {
-                  playlist,
-                  foundVideos: matchingVideos
-                };
-              }
-              return null;
-            } catch (error) {
-              console.error(`Erro ao pesquisar na playlist ${playlist.id}:`, error);
-              // Ainda incrementar progresso em caso de erro
-              processedCount++;
-              this.reportProgress(processedCount, allPlaylists.length);
-              return null;
-            }
-          })
-        );
+        // Parâmetros para a requisição
+        const params: Record<string, string> = {
+          'part': 'statistics',
+          'id': videoIds
+        };
         
-        // Adicionar resultados válidos
-        batchResults.filter(result => result !== null).forEach(result => {
-          if (result) results.push(result);
+        // Obter token de acesso específico da conta, se fornecido
+        let token = providedToken;
+        if (!token && accountId) {
+          // Tentar buscar o token do mapeamento ou da sessão
+          const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
+          const account = accounts.find((acc: any) => acc.id === accountId);
+          if (account && account.providerToken) {
+            token = account.providerToken;
+          }
+        }
+        
+        // Fazer a requisição com o token apropriado
+        const data = await this.fetchFromYoutube('videos', params, token);
+        
+        // Associar estatísticas aos itens correspondentes
+        data.items.forEach((videoData: any) => {
+          const videoId = videoData.id;
+          const stats = videoData.statistics;
+          
+          // Encontrar todos os itens com este ID de vídeo
+          const matchingItems = batch.filter(item => item.videoId === videoId);
+          
+          matchingItems.forEach(item => {
+            item.viewCount = parseInt(stats.viewCount) || 0;
+            item.likeCount = parseInt(stats.likeCount) || 0;
+            item.dislikeCount = parseInt(stats.dislikeCount) || 0; // YouTube API não fornece mais
+            item.lastUpdated = new Date().toISOString();
+          });
         });
       }
-      
-      // Armazenar em cache
-      this.searchCache.set(cacheKey, {
-        results,
-        timestamp: Date.now()
-      });
-      
-      console.log(`Pesquisa concluída: ${results.length} playlists contêm "${query}"`);
-      return results;
     } catch (error) {
-      console.error('Erro ao pesquisar vídeo em todas as playlists:', error);
-      return [];
-    }
-  }
-  
-  // Calcular estimativa de visualizações por playlist
-  async calculatePlaylistViewsEstimate(videoId: string): Promise<Record<string, number>> {
-    try {
-      const video = await this.getVideoById(videoId);
-      
-      if (!video || !video.playlists || video.playlists.length === 0) {
-        return {};
-      }
-      
-      const totalPlaylists = video.playlists.length;
-      const totalViews = video.viewCount;
-      const viewsEstimate: Record<string, number> = {};
-      
-      // Método simples: distribuição proporcional baseada no número de playlists
-      // Este é um método muito básico; em produção, seria necessário um algoritmo mais sofisticado
-      
-      for (const playlist of video.playlists) {
-        // Para cada playlist, calculamos uma estimativa básica dividindo as views totais
-        // pelo número de playlists onde o vídeo aparece
-        viewsEstimate[playlist.id] = Math.round(totalViews / totalPlaylists);
-      }
-      
-      return viewsEstimate;
-    } catch (error) {
-      console.error('Erro ao calcular estimativa de visualizações:', error);
-      return {};
-    }
-  }
-  
-  // Extrair ID do vídeo de uma URL do YouTube
-  private extractVideoIdFromUrl(url: string): string | null {
-    try {
-      // Verificar se é uma URL válida
-      if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-        return null;
-      }
-      
-      // Tentar criar um objeto URL
-      let urlObj: URL;
-      try {
-        urlObj = new URL(url);
-      } catch (e) {
-        // Se não conseguir criar um objeto URL, tentar extrair o ID usando regex
-        const regexShort = /youtu\.be\/([a-zA-Z0-9_-]+)/;
-        const regexLong = /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/;
-        
-        const matchShort = url.match(regexShort);
-        if (matchShort) return matchShort[1];
-        
-        const matchLong = url.match(regexLong);
-        if (matchLong) return matchLong[1];
-        
-        return null;
-      }
-      
-      // URLs no formato: youtube.com/watch?v=VIDEO_ID
-      if (urlObj.hostname.includes('youtube.com') && urlObj.pathname === '/watch') {
-        return urlObj.searchParams.get('v');
-      }
-      
-      // URLs no formato: youtu.be/VIDEO_ID
-      if (urlObj.hostname === 'youtu.be') {
-        return urlObj.pathname.substring(1);
-      }
-      
-      // URLs no formato: youtube.com/embed/VIDEO_ID
-      if (urlObj.hostname.includes('youtube.com') && urlObj.pathname.startsWith('/embed/')) {
-        return urlObj.pathname.split('/embed/')[1];
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('URL inválida:', error);
-      return null;
-    }
-  }
-  
-  // Atualizar dados de uma playlist específica
-  async refreshPlaylistData(playlistId: string): Promise<PlaylistVideoItem[]> {
-    console.log(`Atualizando dados da playlist ${playlistId}`);
-    // Remover esta playlist específica do cache antes de atualizar
-    this.playlistCache.delete(playlistId);
-    // Limpar cache de pesquisa que pode conter resultados desatualizados
-    this.searchCache.clear();
-    return this.getPlaylistItems(playlistId, undefined, true);
-  }
-  
-  // Agenda a atualização de todas as playlists
-  async schedulePlaylistUpdates(): Promise<void> {
-    try {
-      const startTime = Date.now();
-      console.log('Iniciando atualização de todas as playlists...');
-      
-      // Obter todas as playlists do usuário
-      const allPlaylists = await this.getAllPlaylists();
-      console.log(`Total de playlists para atualizar: ${allPlaylists.length}`);
-      
-      // Reportar progresso inicial
-      this.reportProgress(0, allPlaylists.length);
-      
-      // Dividir playlists em lotes para processamento paralelo
-      const batchSize = 5;
-      const batches = [];
-      
-      for (let i = 0; i < allPlaylists.length; i += batchSize) {
-        batches.push(allPlaylists.slice(i, i + batchSize));
-      }
-      
-      let processedCount = 0;
-      
-      // Processar lotes sequencialmente para evitar sobrecarregar a API
-      for (const batch of batches) {
-        await Promise.all(
-          batch.map(async (playlist) => {
-            try {
-              await this.refreshPlaylistData(playlist.id);
-              processedCount++;
-              this.reportProgress(processedCount, allPlaylists.length);
-              console.log(`Progresso: ${processedCount}/${allPlaylists.length} playlists atualizadas`);
-            } catch (error) {
-              console.error(`Erro ao atualizar playlist ${playlist.id}:`, error);
-              // Ainda incrementar o progresso mesmo em caso de erro
-              processedCount++;
-              this.reportProgress(processedCount, allPlaylists.length);
-            }
-          })
-        );
-      }
-      
-      // Limpar o cache de pesquisa após a atualização
-      this.searchCache.clear();
-      
-      const endTime = Date.now();
-      const duration = (endTime - startTime) / 1000;
-      console.log(`Atualização completa! ${allPlaylists.length} playlists atualizadas em ${duration.toFixed(2)}s`);
-    } catch (error) {
-      console.error('Erro ao agendar atualizações de playlists:', error);
+      console.error('Erro ao adicionar estatísticas aos vídeos:', error);
+      // Continuar sem estatísticas em caso de erro
     }
   }
 
-  // Limpar todos os caches
-  clearCache(): void {
-    console.log('Limpando todos os caches de dados...');
-    this.playlistCache.clear();
-    this.searchCache.clear();
-    localStorage.removeItem('lastDataUpdate');
-    console.log('Caches limpos com sucesso');
+  // Gerar relatório combinado para exportação
+  async generateConsolidatedReport(
+    accountIds: string[], 
+    isGrowthReport = false, 
+    dateRange?: { startDate: string; endDate: string }
+  ): Promise<any> {
+    const data = await this.getConsolidatedData(accountIds);
+    
+    // Relatório básico padrão
+    const baseReport = {
+      reportDate: new Date().toISOString(),
+      summary: {
+        totalAccounts: accountIds.length,
+        totalChannels: data.channels.length,
+        totalPlaylists: data.playlists.length,
+        totalVideos: data.totalVideos,
+        totalViews: data.totalViews
+      },
+      channels: data.channels.map(channel => ({
+        id: channel.id,
+        title: channel.title,
+        customUrl: channel.customUrl || ''
+      })),
+      playlists: data.playlists.map(playlist => ({
+        id: playlist.id,
+        title: playlist.title,
+        channelId: playlist.channelId,
+        channelTitle: playlist.channelTitle,
+        itemCount: playlist.itemCount,
+        totalViews: playlist.totalViews || 0
+      }))
+    };
+    
+    // Se não for relatório de crescimento, retorna o padrão
+    if (!isGrowthReport) {
+      return baseReport;
+    }
+    
+    // Para relatório de crescimento, adiciona métricas adicionais
+    try {
+      // Datas do intervalo (usar as fornecidas ou padrão de 30 dias)
+      const startDate = dateRange ? new Date(dateRange.startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = dateRange ? new Date(dateRange.endDate) : new Date();
+      
+      // Calcular duração do período em dias
+      const periodDuration = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Gerar dados de crescimento por canal
+      const channelGrowthData = data.channels.map(channel => {
+        // Dados simulados para visualizações dos canais (em ambiente real, obter da API)
+        const viewsStart = Math.floor(Math.random() * 50000) + 5000;
+        const viewsEnd = viewsStart * (1 + (Math.random() * 0.4 - 0.1)); // -10% a +30% de crescimento
+        const growthPercentage = ((viewsEnd - viewsStart) / viewsStart) * 100;
+        
+        // Dados simulados para inscritos
+        const subscribersStart = Math.floor(Math.random() * 5000) + 500;
+        const subscribersEnd = subscribersStart * (1 + (Math.random() * 0.35 - 0.05)); // -5% a +30% de crescimento
+        
+        return {
+          id: channel.id,
+          title: channel.title,
+          views: Math.round(viewsEnd - viewsStart), // visualizações ganhas no período
+          subscribers: Math.round(subscribersEnd - subscribersStart), // inscritos ganhos no período
+          growthPercentage: parseFloat(growthPercentage.toFixed(2)),
+          customUrl: channel.customUrl || ''
+        };
+      });
+      
+      // Ordenar canais por crescimento percentual
+      const sortedChannels = [...channelGrowthData].sort((a, b) => b.growthPercentage - a.growthPercentage);
+      
+      // Calcular crescimento e tendências para o período personalizado
+      const customGrowthData = {
+        views: channelGrowthData.reduce((sum, channel) => sum + channel.views, 0),
+        subscribers: channelGrowthData.reduce((sum, channel) => sum + channel.subscribers, 0),
+        percentageViews: parseFloat(
+          ((channelGrowthData.reduce((sum, ch) => sum + ch.views, 0) / data.totalViews) * 100).toFixed(2)
+        ) || 0,
+        percentageSubscribers: parseFloat(
+          ((channelGrowthData.reduce((sum, ch) => sum + ch.subscribers, 0) / 
+            (data.channels.length * 1000)) * 100).toFixed(2) // Valor base simulado de 1000 inscritos por canal
+        ) || 0
+      };
+      
+      // Gerar dados de vídeos em alta (simulados, em ambiente real obter da API)
+      const topVideos = Array.from({ length: 5 }, (_, i) => ({
+        id: `video${i + 1}`,
+        title: `Vídeo em alta ${i + 1}`,
+        views: Math.floor(Math.random() * 15000) + 5000,
+        growthPercentage: Math.floor(Math.random() * 40) + 10
+      })).sort((a, b) => b.growthPercentage - a.growthPercentage);
+      
+      // Playlists em alta (simuladas)
+      const topPlaylists = Array.from({ length: 5 }, (_, i) => ({
+        id: `playlist${i + 1}`,
+        title: `Playlist em alta ${i + 1}`,
+        views: Math.floor(Math.random() * 25000) + 10000,
+        growthPercentage: Math.floor(Math.random() * 35) + 12
+      })).sort((a, b) => b.growthPercentage - a.growthPercentage);
+      
+      // Gerar dados de tendências mensais
+      const generateMonthlyTrends = () => {
+        // Determinar quantos meses mostrar com base no período
+        let monthCount = Math.ceil(periodDuration / 30);
+        monthCount = Math.min(Math.max(monthCount, 3), 6); // Pelo menos 3, no máximo 6
+        
+        // Obter meses anteriores
+        const months = [];
+        const currentDate = new Date(endDate);
+        
+        // Se o período for grande, gerar dados mensais, senão semanais
+        const isMonthly = periodDuration > 60;
+        const periodName = isMonthly ? 'month' : 'week';
+        const periodDays = isMonthly ? 30 : 7;
+        
+        for (let i = 0; i < monthCount; i++) {
+          const monthDate = new Date(currentDate);
+          monthDate.setDate(monthDate.getDate() - (i * periodDays));
+          
+          // Nome do mês ou semana
+          let label;
+          if (isMonthly) {
+            // Formato: "Jan/23"
+            label = monthDate.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+            // Capitalize a primeira letra
+            label = label.charAt(0).toUpperCase() + label.slice(1);
+          } else {
+            // Formato para semanas: "6-12 Jun"
+            const weekStart = new Date(monthDate);
+            weekStart.setDate(weekStart.getDate() - 6);
+            label = `${weekStart.getDate()}-${monthDate.getDate()} ${monthDate.toLocaleDateString('pt-BR', { month: 'short' })}`;
+          }
+          
+          // Dados simulados
+          const viewsBase = 10000 + (i * 2000); // Mais views em meses mais recentes
+          const subscribersBase = 200 + (i * 50);
+          
+          // Adicionar variação para não ser linear demais
+          const variation = Math.random() * 0.3 + 0.85; // 0.85 a 1.15
+          
+          months.push({
+            month: label,
+            views: Math.round(viewsBase * variation),
+            subscribers: Math.round(subscribersBase * variation)
+          });
+        }
+        
+        // Inverter para ordem cronológica (mais antigo primeiro)
+        return months.reverse();
+      };
+      
+      const growthReport = {
+        ...baseReport,
+        reportType: 'growth',
+        dateRange: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString()
+        },
+        growth: {
+          lastMonth: {
+            views: Math.floor(Math.random() * 50000) + 5000,
+            subscribers: Math.floor(Math.random() * 1000) + 100,
+            percentageViews: Math.round((Math.random() * 30) - 10), // Pode ser negativo
+            percentageSubscribers: Math.round((Math.random() * 25) - 5)
+          },
+          lastQuarter: {
+            views: Math.floor(Math.random() * 150000) + 15000,
+            subscribers: Math.floor(Math.random() * 3000) + 300,
+            percentageViews: Math.round((Math.random() * 45) - 15),
+            percentageSubscribers: Math.round((Math.random() * 40) - 10)
+          },
+          // Dados personalizados para o período selecionado
+          custom: customGrowthData
+        },
+        topPerformers: {
+          channels: sortedChannels,
+          videos: topVideos,
+          playlists: topPlaylists
+        },
+        // Adicionar tendências por período
+        trends: {
+          monthly: generateMonthlyTrends()
+        }
+      };
+      
+      return growthReport;
+    } catch (error) {
+      console.error('Erro ao calcular dados de crescimento:', error);
+      // Em caso de erro, retorna o relatório básico
+      return baseReport;
+    }
+  }
+  
+  // Exportar relatório consolidado
+  async exportConsolidatedReport(
+    accountIds: string[], 
+    format: 'csv' | 'json' = 'json', 
+    isGrowthReport = false,
+    dateRange?: { startDate: string; endDate: string }
+  ): Promise<string | object> {
+    try {
+      const reportData = await this.generateConsolidatedReport(accountIds, isGrowthReport, dateRange);
+      
+      // Retornar no formato solicitado
+      if (format === 'csv') {
+        return this.convertReportToCSV(reportData);
+      }
+      return reportData;
+    } catch (error) {
+      console.error('Erro ao exportar relatório consolidado:', error);
+      throw error;
+    }
+  }
+  
+  // Converter relatório para CSV
+  private convertReportToCSV(reportData: any): string {
+    // Implementação simplificada, expanda conforme necessário
+    let csv = '';
+    
+    // Adicionar cabeçalho do relatório
+    csv += `Relatório gerado em,${reportData.reportDate}\n`;
+    if (reportData.reportType === 'growth') {
+      csv += 'Tipo de relatório,Crescimento\n';
+      if (reportData.dateRange) {
+        csv += `Período de análise,${new Date(reportData.dateRange.startDate).toLocaleDateString('pt-BR')} a ${new Date(reportData.dateRange.endDate).toLocaleDateString('pt-BR')}\n`;
+      }
+      csv += '\n';
+    } else {
+      csv += 'Tipo de relatório,Padrão\n\n';
+    }
+    
+    // Adicionar informações gerais
+    if (reportData.summary) {
+      csv += 'RESUMO,\n';
+      csv += `Total de Contas,${reportData.summary.totalAccounts}\n`;
+      csv += `Total de Canais,${reportData.summary.totalChannels}\n`;
+      csv += `Total de Playlists,${reportData.summary.totalPlaylists}\n`;
+      csv += `Total de Vídeos,${reportData.summary.totalVideos}\n`;
+      csv += `Total de Visualizações,${reportData.summary.totalViews}\n\n`;
+    }
+    
+    // Adicionar dados de crescimento se for relatório de crescimento
+    if (reportData.reportType === 'growth' && reportData.growth) {
+      csv += 'CRESCIMENTO,\n';
+      csv += 'Período,Visualizações,Crescimento %,Inscritos,Crescimento %\n';
+      csv += `Último mês,${reportData.growth.lastMonth.views},${reportData.growth.lastMonth.percentageViews}%,` + 
+             `${reportData.growth.lastMonth.subscribers},${reportData.growth.lastMonth.percentageSubscribers}%\n`;
+      csv += `Último trimestre,${reportData.growth.lastQuarter.views},${reportData.growth.lastQuarter.percentageViews}%,` +
+             `${reportData.growth.lastQuarter.subscribers},${reportData.growth.lastQuarter.percentageSubscribers}%\n`;
+      
+      // Adicionar dados do período personalizado se disponíveis
+      if (reportData.growth.custom) {
+        csv += `Período selecionado,${reportData.growth.custom.views},${reportData.growth.custom.percentageViews}%,` +
+               `${reportData.growth.custom.subscribers},${reportData.growth.custom.percentageSubscribers}%\n`;
+      }
+      csv += '\n';
+             
+      // Adicionar canais com crescimento
+      if (reportData.topPerformers && reportData.topPerformers.channels) {
+        csv += 'CANAIS COM MAIOR CRESCIMENTO,\n';
+        csv += 'Título,URL Personalizada,Visualizações,Inscritos,Crescimento %\n';
+        reportData.topPerformers.channels.forEach((channel: any) => {
+          csv += `${this.escapeCsvValue(channel.title)},${channel.customUrl || ''},${channel.views},${channel.subscribers || 0},${channel.growthPercentage}%\n`;
+        });
+        csv += '\n';
+      }
+      
+      // Adicionar top performers
+      if (reportData.topPerformers) {
+        csv += 'TOP VÍDEOS,\n';
+        csv += 'ID,Título,Visualizações,Crescimento %\n';
+        reportData.topPerformers.videos.forEach((video: any) => {
+          csv += `${video.id},${this.escapeCsvValue(video.title)},${video.views},${video.growthPercentage}%\n`;
+        });
+        csv += '\n';
+        
+        csv += 'TOP PLAYLISTS,\n';
+        csv += 'ID,Título,Visualizações,Crescimento %\n';
+        reportData.topPerformers.playlists.forEach((playlist: any) => {
+          csv += `${playlist.id},${this.escapeCsvValue(playlist.title)},${playlist.views},${playlist.growthPercentage}%\n`;
+        });
+        csv += '\n';
+      }
+      
+      // Adicionar tendências mensais
+      if (reportData.trends && reportData.trends.monthly) {
+        csv += 'TENDÊNCIAS TEMPORAIS,\n';
+        csv += 'Período,Visualizações,Inscritos\n';
+        reportData.trends.monthly.forEach((month: any) => {
+          csv += `${month.month},${month.views},${month.subscribers}\n`;
+        });
+        csv += '\n';
+      }
+    }
+    
+    // Adicionar canais
+    csv += 'CANAIS,\n';
+    csv += 'ID,Título,URL Personalizada\n';
+    reportData.channels.forEach((channel: any) => {
+      csv += `${channel.id},${this.escapeCsvValue(channel.title)},${channel.customUrl || ''}\n`;
+    });
+    csv += '\n';
+    
+    // Adicionar playlists
+    csv += 'PLAYLISTS,\n';
+    csv += 'ID,Título,Canal,Vídeos,Visualizações\n';
+    reportData.playlists
+      .sort((a: any, b: any) => b.totalViews - a.totalViews)
+      .forEach((playlist: any) => {
+        csv += `${playlist.id},${this.escapeCsvValue(playlist.title)},${this.escapeCsvValue(playlist.channelTitle || '')},${playlist.itemCount},${playlist.totalViews || 0}\n`;
+      });
+    
+    return csv;
+  }
+  
+  // Escapar valores para CSV
+  private escapeCsvValue(value: string): string {
+    if (!value) return '';
+    // Escapar aspas duplicando-as e envolver em aspas se contiver vírgula, aspas ou quebras de linha
+    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
+  }
+
+  // Carregar cache do localStorage
+  private loadCache(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        console.log('Carregando cache do YouTube do localStorage');
+        
+        // Carregar cache dos canais
+        const channelsCache = localStorage.getItem('yt_channels_cache');
+        if (channelsCache) {
+          try {
+            const parsed = JSON.parse(channelsCache);
+            this.channelsCache = {
+              data: parsed.data || [],
+              timestamp: parsed.timestamp || 0
+            };
+            console.log('Cache de canais carregado');
+          } catch (e) {
+            console.error('Erro ao processar cache de canais:', e);
+          }
+        }
+        
+        // Carregar cache das playlists
+        const playlistsCache = localStorage.getItem('yt_playlists_cache');
+        if (playlistsCache) {
+          try {
+            const parsed = JSON.parse(playlistsCache);
+            this.myPlaylistsCache = {
+              playlists: parsed.playlists || [],
+              nextPageToken: parsed.nextPageToken,
+              timestamp: parsed.timestamp || 0
+            };
+            console.log('Cache de playlists carregado');
+          } catch (e) {
+            console.error('Erro ao processar cache de playlists:', e);
+          }
+        }
+        
+        // Carregar cache de playlists específicas
+        const playlistItemsCache = localStorage.getItem('yt_playlist_items_cache');
+        if (playlistItemsCache) {
+          try {
+            const parsedItems = JSON.parse(playlistItemsCache);
+            this.playlistCache = new Map();
+            
+            if (parsedItems && typeof parsedItems === 'object') {
+              Object.entries(parsedItems).forEach(([playlistId, cacheData]: [string, any]) => {
+                if (cacheData && cacheData.data) {
+                  this.playlistCache.set(playlistId, {
+                    data: cacheData.data || [],
+                    timestamp: cacheData.timestamp || 0
+                  });
+                }
+              });
+            }
+            console.log(`Cache de ${this.playlistCache.size} playlists carregado`);
+          } catch (e) {
+            console.error('Erro ao processar cache de itens de playlist:', e);
+          }
+        }
+        
+        // Carregar cache por contas
+        this.loadAccountSpecificCache();
+      }
+    } catch (error) {
+      console.error('Erro ao carregar cache do YouTube:', error);
+      // Em caso de erro, ignorar o cache e começar com um cache limpo
+    }
+  }
+  
+  // Carregar cache específico por conta
+  private loadAccountSpecificCache(): void {
+    try {
+      // Inicializar maps
+      this.accountChannelsCache = new Map();
+      this.accountPlaylistsCache = new Map();
+      this.accountPlaylistCache = new Map();
+      
+      // Carregar cache de canais por conta
+      const accountChannelsCache = localStorage.getItem('yt_account_channels_cache');
+      if (accountChannelsCache) {
+        try {
+          const parsed = JSON.parse(accountChannelsCache);
+          if (parsed && typeof parsed === 'object') {
+            Object.entries(parsed).forEach(([accountId, cacheData]: [string, any]) => {
+              this.accountChannelsCache.set(accountId, {
+                data: cacheData.data || [],
+                timestamp: cacheData.timestamp || 0
+              });
+            });
+          }
+          console.log(`Cache de canais para ${this.accountChannelsCache.size} contas carregado`);
+        } catch (e) {
+          console.error('Erro ao processar cache de canais por conta:', e);
+        }
+      }
+      
+      // Carregar cache de playlists por conta
+      const accountPlaylistsCache = localStorage.getItem('yt_account_playlists_cache');
+      if (accountPlaylistsCache) {
+        try {
+          const parsed = JSON.parse(accountPlaylistsCache);
+          if (parsed && typeof parsed === 'object') {
+            Object.entries(parsed).forEach(([accountId, cacheData]: [string, any]) => {
+              this.accountPlaylistsCache.set(accountId, {
+                playlists: cacheData.playlists || [],
+                nextPageToken: cacheData.nextPageToken,
+                timestamp: cacheData.timestamp || 0
+              });
+            });
+          }
+          console.log(`Cache de playlists para ${this.accountPlaylistsCache.size} contas carregado`);
+        } catch (e) {
+          console.error('Erro ao processar cache de playlists por conta:', e);
+        }
+      }
+      
+      // Carregar cache de itens de playlist por conta
+      const accountPlaylistItemsCache = localStorage.getItem('yt_account_playlist_items_cache');
+      if (accountPlaylistItemsCache) {
+        try {
+          const parsed = JSON.parse(accountPlaylistItemsCache);
+          if (parsed && typeof parsed === 'object') {
+            Object.entries(parsed).forEach(([accountId, playlistsMap]: [string, any]) => {
+              const playlistMap = new Map();
+              
+              if (playlistsMap && typeof playlistsMap === 'object') {
+                Object.entries(playlistsMap).forEach(([playlistId, itemsCache]: [string, any]) => {
+                  if (itemsCache && itemsCache.data) {
+                    playlistMap.set(playlistId, {
+                      data: itemsCache.data || [],
+                      timestamp: itemsCache.timestamp || 0
+                    });
+                  }
+                });
+              }
+              
+              if (playlistMap.size > 0) {
+                this.accountPlaylistCache.set(accountId, playlistMap);
+              }
+            });
+          }
+          
+          console.log(`Cache de itens de playlist para ${this.accountPlaylistCache.size} contas carregado`);
+        } catch (e) {
+          console.error('Erro ao processar cache de itens de playlist por conta:', e);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar cache específico por conta:', error);
+    }
+  }
+
+  // Persistir cache no localStorage
+  private persistCache(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        console.log('Persistindo cache do YouTube no localStorage');
+        
+        // Salvar cache de canais
+        if (this.channelsCache) {
+          try {
+            localStorage.setItem('yt_channels_cache', JSON.stringify(this.channelsCache));
+          } catch (e) {
+            console.error('Erro ao salvar cache de canais:', e);
+          }
+        }
+        
+        // Salvar cache de playlists
+        if (this.myPlaylistsCache) {
+          try {
+            localStorage.setItem('yt_playlists_cache', JSON.stringify(this.myPlaylistsCache));
+          } catch (e) {
+            console.error('Erro ao salvar cache de playlists:', e);
+          }
+        }
+        
+        // Salvar cache de itens de playlists (converter Map para objeto)
+        if (this.playlistCache.size > 0) {
+          try {
+            const playlistItemsObj: Record<string, any> = {};
+            this.playlistCache.forEach((value, key) => {
+              if (key && value) {
+                playlistItemsObj[key] = value;
+              }
+            });
+            localStorage.setItem('yt_playlist_items_cache', JSON.stringify(playlistItemsObj));
+          } catch (e) {
+            console.error('Erro ao salvar cache de itens de playlist:', e);
+          }
+        }
+        
+        // Persistir caches específicos de conta
+        this.persistAccountSpecificCache();
+      }
+    } catch (error) {
+      console.error('Erro ao persistir cache do YouTube:', error);
+      // Em caso de erro, continuar sem persistir o cache
+    }
+  }
+  
+  // Persistir caches específicos por conta
+  private persistAccountSpecificCache(): void {
+    try {
+      // Canais por conta
+      if (this.accountChannelsCache.size > 0) {
+        try {
+          const accountChannelsObj: Record<string, any> = {};
+          this.accountChannelsCache.forEach((value, key) => {
+            if (key && value) {
+              accountChannelsObj[key] = value;
+            }
+          });
+          localStorage.setItem('yt_account_channels_cache', JSON.stringify(accountChannelsObj));
+        } catch (e) {
+          console.error('Erro ao salvar cache de canais por conta:', e);
+        }
+      }
+      
+      // Playlists por conta
+      if (this.accountPlaylistsCache.size > 0) {
+        try {
+          const accountPlaylistsObj: Record<string, any> = {};
+          this.accountPlaylistsCache.forEach((value, key) => {
+            if (key && value) {
+              accountPlaylistsObj[key] = value;
+            }
+          });
+          localStorage.setItem('yt_account_playlists_cache', JSON.stringify(accountPlaylistsObj));
+        } catch (e) {
+          console.error('Erro ao salvar cache de playlists por conta:', e);
+        }
+      }
+      
+      // Itens de playlist por conta (converter Map de Maps para objeto)
+      if (this.accountPlaylistCache.size > 0) {
+        try {
+          const accountPlaylistItemsObj: Record<string, Record<string, any>> = {};
+          this.accountPlaylistCache.forEach((playlistMap, accountId) => {
+            if (!accountId || !playlistMap || playlistMap.size === 0) return;
+            
+            const playlistObj: Record<string, any> = {};
+            playlistMap.forEach((value, playlistId) => {
+              if (playlistId && value) {
+                playlistObj[playlistId] = value;
+              }
+            });
+            
+            if (Object.keys(playlistObj).length > 0) {
+              accountPlaylistItemsObj[accountId] = playlistObj;
+            }
+          });
+          
+          if (Object.keys(accountPlaylistItemsObj).length > 0) {
+            localStorage.setItem('yt_account_playlist_items_cache', JSON.stringify(accountPlaylistItemsObj));
+          }
+        } catch (e) {
+          console.error('Erro ao salvar cache de itens de playlist por conta:', e);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao persistir cache específico por conta:', error);
+    }
+  }
+
+  // Construtor para carregar cache ao inicializar
+  constructor() {
+    // Carregar cache do localStorage se disponível
+    if (typeof window !== 'undefined') {
+      this.loadCache();
+      
+      // Configurar persistência automática antes de fechar a página
+      window.addEventListener('beforeunload', () => {
+        this.persistCache();
+      });
+      
+      // Persistir cache periodicamente (a cada 5 minutos)
+      setInterval(() => {
+        this.persistCache();
+      }, 5 * 60 * 1000);
+    }
+  }
+
+  // Método para buscar vídeos em todas as playlists do usuário
+  async searchVideoAcrossPlaylists(
+    searchTerm: string,
+    accountId?: string,
+    providedToken?: string
+  ): Promise<PlaylistWithFoundVideos[]> {
+    try {
+      console.log(`Buscando vídeos com o termo "${searchTerm}" em todas as playlists`);
+      
+      // Obter todas as playlists do usuário
+      const { playlists } = await this.getMyPlaylists(undefined, accountId, providedToken);
+      
+      if (playlists.length === 0) {
+        console.log('Nenhuma playlist encontrada para pesquisar');
+        return [];
+      }
+      
+      console.log(`Iniciando busca em ${playlists.length} playlists`);
+      
+      // Para cada playlist, buscar seus vídeos e filtrar pelo termo de pesquisa
+      const results = await Promise.all(
+        playlists.map(async (playlist) => {
+          try {
+            // Obter todos os vídeos da playlist
+            const playlistItems = await this.getPlaylistItems(
+              playlist.id, 
+              undefined, 
+              false, 
+              accountId,
+              providedToken
+            );
+            
+            // Pesquisar por título (insensível a maiúsculas/minúsculas e acentos)
+            const normalizedTerm = searchTerm.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            
+            // Filtrar vídeos pelo termo de pesquisa
+            const foundVideos = playlistItems.filter(item => {
+              const normalizedTitle = item.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+              return normalizedTitle.includes(normalizedTerm);
+            });
+            
+            // Retornar resultado para esta playlist
+            return {
+              playlist,
+              foundVideos
+            };
+          } catch (error) {
+            console.error(`Erro ao buscar vídeos da playlist ${playlist.id}:`, error);
+            return {
+              playlist,
+              foundVideos: []
+            };
+          }
+        })
+      );
+      
+      // Filtrar apenas playlists que tiveram resultados
+      const filteredResults = results.filter(result => result.foundVideos.length > 0);
+      
+      console.log(`Encontrados vídeos em ${filteredResults.length} playlists`);
+      return filteredResults;
+    } catch (error) {
+      console.error('Erro ao buscar vídeos em todas as playlists:', error);
+      throw error;
+    }
+  }
+  
+  // Método para buscar vídeo pelo ID
+  async getVideoById(
+    videoId: string,
+    accountId?: string,
+    providedToken?: string
+  ): Promise<YoutubeVideo | null> {
+    try {
+      // Verificar cache
+      if (this.videoCache.has(videoId) && !this.needsRefresh(this.videoCache.get(videoId)!.timestamp)) {
+        return this.videoCache.get(videoId)!.data;
+      }
+      
+      // Obter token de acesso específico da conta, se fornecido
+      let token = providedToken;
+      if (!token && accountId) {
+        // Tentar buscar o token do mapeamento
+        const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
+        const account = accounts.find((acc: any) => acc.id === accountId);
+        if (account && account.providerToken) {
+          token = account.providerToken;
+        }
+      }
+      
+      // Parâmetros para a requisição
+      const params: Record<string, string> = {
+        'part': 'snippet,statistics',
+        'id': videoId
+      };
+      
+      // Fazer a requisição com o token apropriado
+      const data = await this.fetchFromYoutube('videos', params, token);
+      
+      if (!data.items || data.items.length === 0) {
+        return null;
+      }
+      
+      const videoData = data.items[0];
+      
+      // Buscar playlists que contêm este vídeo
+      const { playlists } = await this.getMyPlaylists(undefined, accountId, providedToken);
+      const videoPlaylists: YoutubePlaylist[] = [];
+      
+      // Para cada playlist, verificar se contém o vídeo
+      await Promise.all(
+        playlists.map(async (playlist) => {
+          try {
+            const playlistItems = await this.getPlaylistItems(
+              playlist.id, 
+              undefined, 
+              false, 
+              accountId,
+              providedToken
+            );
+            
+            // Se o vídeo estiver nesta playlist, adicioná-la à lista
+            if (playlistItems.some(item => item.videoId === videoId)) {
+              videoPlaylists.push(playlist);
+            }
+          } catch (error) {
+            console.error(`Erro ao verificar playlist ${playlist.id}:`, error);
+          }
+        })
+      );
+      
+      // Criar objeto do vídeo
+      const video: YoutubeVideo = {
+        id: videoData.id,
+        title: videoData.snippet.title,
+        description: videoData.snippet.description || '',
+        thumbnailUrl: 
+          videoData.snippet.thumbnails?.high?.url || 
+          videoData.snippet.thumbnails?.medium?.url || 
+          videoData.snippet.thumbnails?.default?.url,
+        channelId: videoData.snippet.channelId,
+        channelTitle: videoData.snippet.channelTitle,
+        viewCount: parseInt(videoData.statistics.viewCount) || 0,
+        likeCount: parseInt(videoData.statistics.likeCount) || 0,
+        publishedAt: videoData.snippet.publishedAt,
+        lastUpdated: new Date().toISOString(),
+        playlists: videoPlaylists
+      };
+      
+      // Armazenar em cache
+      this.videoCache.set(videoId, {
+        data: video,
+        timestamp: Date.now()
+      });
+      
+      return video;
+    } catch (error) {
+      console.error(`Erro ao buscar vídeo ${videoId}:`, error);
+      return null;
+    }
+  }
+  
+  // Método para buscar vídeo pela URL
+  async getVideoByUrl(
+    url: string,
+    accountId?: string,
+    providedToken?: string
+  ): Promise<YoutubeVideo | null> {
+    try {
+      // Extrair ID do vídeo da URL
+      const videoId = this.extractVideoId(url);
+      
+      if (!videoId) {
+        console.error('ID do vídeo não encontrado na URL:', url);
+        return null;
+      }
+      
+      // Buscar informações do vídeo pelo ID
+      return await this.getVideoById(videoId, accountId, providedToken);
+    } catch (error) {
+      console.error(`Erro ao buscar vídeo pela URL ${url}:`, error);
+      return null;
+    }
   }
 }
 

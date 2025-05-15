@@ -18,11 +18,13 @@ interface PlaylistVideoItem {
   lastUpdated?: string;
 }
 import ExportModal from '../components/ExportModal';
+import { useMultiAccount } from '../contexts/MultiAccountContext';
 
 type SearchType = 'title' | 'id' | 'url';
 
 const PlaylistDetails = () => {
   const { id } = useParams<{ id: string }>();
+  const { activeAccount } = useMultiAccount();
   const [playlist, setPlaylist] = useState<YoutubePlaylist | null>(null);
   const [videos, setVideos] = useState<PlaylistVideoItem[]>([]);
   const [filteredVideos, setFilteredVideos] = useState<PlaylistVideoItem[]>([]);
@@ -49,14 +51,45 @@ const PlaylistDetails = () => {
     setError(null);
     
     try {
-      // Buscar todas as playlists do usuário
-      const allPlaylists = await youtubeService.getMyPlaylists();
+      const accountId = activeAccount?.id;
+      console.log(`Buscando playlist ${id} para a conta:`, accountId || 'padrão');
+      
+      // Buscar todas as playlists do usuário com o ID da conta ativa
+      const allPlaylists = await youtubeService.getMyPlaylists(undefined, accountId);
       
       // Encontrar a playlist específica pelo ID
       const playlistData = allPlaylists.playlists.find(p => p.id === id);
       
       if (!playlistData) {
-        setError('Playlist não encontrada.');
+        console.error(`Playlist ${id} não encontrada para a conta ${accountId}`);
+        
+        // Tentar buscar a playlist diretamente via API
+        try {
+          console.log("Tentando buscar playlist diretamente via API...");
+          const directPlaylist = await youtubeService.getPlaylistById(id, accountId);
+          
+          if (directPlaylist) {
+            console.log("Playlist encontrada diretamente:", directPlaylist);
+            setPlaylist(directPlaylist);
+            
+            // Buscar os vídeos da playlist (com opção de forçar atualização)
+            const playlistItems = await youtubeService.getPlaylistItems(id, undefined, forceRefresh, accountId);
+            setVideos(playlistItems);
+            setFilteredVideos(playlistItems);
+            
+            // Calcular o total de visualizações
+            const views = playlistItems.reduce((total, video) => total + (video.viewCount || 0), 0);
+            setTotalViews(views);
+            
+            // Limpar erro pois encontramos a playlist
+            setError(null);
+            return;
+          }
+        } catch (directError) {
+          console.error("Erro ao buscar playlist diretamente:", directError);
+        }
+        
+        setError('Playlist não encontrada. Verifique se você tem acesso a esta playlist na conta atual.');
         setLoading(false);
         setRefreshing(false);
         return;
@@ -65,7 +98,7 @@ const PlaylistDetails = () => {
       setPlaylist(playlistData);
       
       // Buscar os vídeos da playlist (com opção de forçar atualização)
-      const playlistItems = await youtubeService.getPlaylistItems(id, undefined, forceRefresh);
+      const playlistItems = await youtubeService.getPlaylistItems(id, undefined, forceRefresh, accountId);
       setVideos(playlistItems);
       setFilteredVideos(playlistItems);
       
@@ -83,7 +116,7 @@ const PlaylistDetails = () => {
   
   useEffect(() => {
     fetchPlaylistData();
-  }, [id]);
+  }, [id, activeAccount]); // Adicionar activeAccount como dependência
   
   // Função para atualizar manualmente os dados da playlist
   const handleRefreshData = async () => {
@@ -102,7 +135,8 @@ const PlaylistDetails = () => {
     setSearching(true);
     
     try {
-      const results = await youtubeService.searchVideosInPlaylist(id, searchTerm, searchType);
+      const accountId = activeAccount?.id;
+      const results = await youtubeService.searchVideosInPlaylist(id, searchTerm, searchType, accountId);
       setFilteredVideos(results);
       
       if (results.length === 0) {

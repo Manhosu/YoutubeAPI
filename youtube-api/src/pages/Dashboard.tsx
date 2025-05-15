@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { youtubeService, type YoutubeChannel, type YoutubePlaylist, type PlaylistVideoItem } from '../services/youtubeService';
 import { useAuth } from '../contexts/AuthContext';
+import { useMultiAccount } from '../contexts/MultiAccountContext';
 
 // Interface para os resultados de pesquisa em todas as playlists
 interface PlaylistWithFoundVideos {
@@ -15,6 +16,7 @@ type SearchType = 'title' | 'id' | 'url';
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const { activeAccount } = useMultiAccount();
   const [channels, setChannels] = useState<YoutubeChannel[]>([]);
   const [playlists, setPlaylists] = useState<YoutubePlaylist[]>([]);
   const [filteredPlaylists, setFilteredPlaylists] = useState<YoutubePlaylist[]>([]);
@@ -26,9 +28,6 @@ const Dashboard = () => {
   const [searchType, setSearchType] = useState<SearchType>('title');
   const [videoSearchResults, setVideoSearchResults] = useState<PlaylistWithFoundVideos[]>([]);
   const [searching, setSearching] = useState(false);
-  const [searchProgress, setSearchProgress] = useState(0);
-  const [totalPlaylistsToSearch, setTotalPlaylistsToSearch] = useState(0);
-  const [searchStartTime, setSearchStartTime] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -38,14 +37,25 @@ const Dashboard = () => {
       setError(null);
       
       try {
+        // Usar ID da conta ativa para buscar dados
+        const accountId = activeAccount?.id;
+        console.log('Buscando dados para conta:', accountId || 'padrão');
+        
         // Buscar canais do usuário
-        const channelsData = await youtubeService.getMyChannels();
+        const channelsData = await youtubeService.getMyChannels(accountId);
         setChannels(channelsData);
         
         // Buscar playlists do usuário
-        const playlistsData = await youtubeService.getMyPlaylists();
-        setPlaylists(playlistsData.playlists);
-        setFilteredPlaylists(playlistsData.playlists);
+        const playlistsData = await youtubeService.getMyPlaylists(undefined, accountId);
+        
+        // Certificar que cada playlist tem visualizações inicializadas
+        const playlistsWithViews = playlistsData.playlists.map(playlist => ({
+          ...playlist,
+          totalViews: playlist.totalViews || 0
+        }));
+        
+        setPlaylists(playlistsWithViews);
+        setFilteredPlaylists(playlistsWithViews);
         setNextPageToken(playlistsData.nextPageToken);
       } catch (err) {
         console.error('Erro ao buscar dados:', err);
@@ -56,7 +66,7 @@ const Dashboard = () => {
     };
     
     fetchData();
-  }, [user]);
+  }, [user, activeAccount]);
 
   // Filtrar playlists com base no termo de pesquisa
   useEffect(() => {
@@ -81,8 +91,16 @@ const Dashboard = () => {
     
     try {
       setLoading(true);
-      const playlistsData = await youtubeService.getMyPlaylists(nextPageToken);
-      const updatedPlaylists = [...playlists, ...playlistsData.playlists];
+      const accountId = activeAccount?.id;
+      const playlistsData = await youtubeService.getMyPlaylists(nextPageToken, accountId);
+      
+      // Certificar que cada nova playlist tem visualizações inicializadas
+      const newPlaylistsWithViews = playlistsData.playlists.map(playlist => ({
+        ...playlist,
+        totalViews: playlist.totalViews || 0
+      }));
+      
+      const updatedPlaylists = [...playlists, ...newPlaylistsWithViews];
       setPlaylists(updatedPlaylists);
       
       // Atualizar playlists filtradas também
@@ -126,36 +144,21 @@ const Dashboard = () => {
     
     setSearching(true);
     setError(null);
-    setVideoSearchResults([]);
-    setSearchProgress(0);
-    setTotalPlaylistsToSearch(0);
-    setSearchStartTime(Date.now());
     
     try {
-      // Feedback inicial para o usuário
-      const allPlaylists = await youtubeService.getAllPlaylists();
-      setTotalPlaylistsToSearch(allPlaylists.length);
-      
-      // Criar um listener para acompanhar o progresso
-      const progressListener = (progress: number, _total: number) => {
-        setSearchProgress(progress);
-      };
-      
-      // Adicionar listener antes da pesquisa
-      youtubeService.setProgressListener(progressListener);
-      
+      const accountId = activeAccount?.id;
       let results: PlaylistWithFoundVideos[] = [];
       
       // Realizar a pesquisa com base no tipo selecionado
       if (searchType === 'title') {
-        results = await youtubeService.searchVideoAcrossPlaylists(searchTerm);
+        results = await youtubeService.searchVideoAcrossPlaylists(searchTerm, accountId);
       } else if (searchType === 'id') {
         // Buscar vídeo por ID
-        const video = await youtubeService.getVideoById(searchTerm);
+        const video = await youtubeService.getVideoById(searchTerm, accountId);
         if (video && video.playlists) {
           // Construir resultados no mesmo formato
           results = await Promise.all(video.playlists.map(async (playlist) => {
-            const playlistItems = await youtubeService.getPlaylistItems(playlist.id);
+            const playlistItems = await youtubeService.getPlaylistItems(playlist.id, undefined, false, accountId);
             const foundVideo = playlistItems.find(item => item.videoId === searchTerm);
             return {
               playlist,
@@ -166,10 +169,10 @@ const Dashboard = () => {
         }
       } else if (searchType === 'url') {
         // Extrair ID do vídeo da URL e buscar
-        const videoByUrl = await youtubeService.getVideoByUrl(searchTerm);
+        const videoByUrl = await youtubeService.getVideoByUrl(searchTerm, accountId);
         if (videoByUrl && videoByUrl.playlists) {
           results = await Promise.all(videoByUrl.playlists.map(async (playlist) => {
-            const playlistItems = await youtubeService.getPlaylistItems(playlist.id);
+            const playlistItems = await youtubeService.getPlaylistItems(playlist.id, undefined, false, accountId);
             const foundVideo = playlistItems.find(item => item.videoId === videoByUrl.id);
             return {
               playlist,
@@ -180,12 +183,6 @@ const Dashboard = () => {
         }
       }
       
-      // Remover listener após pesquisa
-      youtubeService.setProgressListener(null);
-      
-      // Ordenar resultados por relevância ou título da playlist
-      results.sort((a, b) => a.playlist.title.localeCompare(b.playlist.title));
-      
       setVideoSearchResults(results);
       
       if (results.length === 0) {
@@ -194,11 +191,8 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Erro ao pesquisar vídeos:', err);
       setError('Ocorreu um erro ao pesquisar vídeos nas playlists.');
-      // Remover listener em caso de erro
-      youtubeService.setProgressListener(null);
     } finally {
       setSearching(false);
-      setSearchStartTime(null);
     }
   };
 
@@ -213,29 +207,6 @@ const Dashboard = () => {
   // Formatar número com separadores de milhar
   const formatNumber = (num: number): string => {
     return new Intl.NumberFormat('pt-BR').format(num);
-  };
-
-  // Calcular tempo estimado restante
-  const getEstimatedTimeRemaining = () => {
-    if (!searchStartTime || searchProgress === 0) return null;
-    
-    const elapsedMs = Date.now() - searchStartTime;
-    const progressPercent = searchProgress / totalPlaylistsToSearch;
-    
-    if (progressPercent === 0) return null;
-    
-    // Estimar tempo total com base no tempo decorrido e progresso atual
-    const estimatedTotalMs = elapsedMs / progressPercent;
-    const remainingMs = Math.max(0, estimatedTotalMs - elapsedMs);
-    
-    if (remainingMs <= 0) return "Finalizando...";
-    
-    const remainingSec = Math.round(remainingMs / 1000);
-    if (remainingSec < 60) return `${remainingSec} segundos`;
-    
-    const remainingMin = Math.floor(remainingSec / 60);
-    const sec = remainingSec % 60;
-    return `${remainingMin}m ${sec}s`;
   };
 
   return (
@@ -396,26 +367,6 @@ const Dashboard = () => {
                 </div>
               </div>
             </form>
-            
-            {/* Indicador de progresso durante a pesquisa */}
-            {searching && (
-              <div className="mt-6">
-                <div className="flex justify-between items-center mb-2">
-                  <div className="text-sm text-gray-300">
-                    Pesquisando em playlists: {searchProgress}/{totalPlaylistsToSearch}
-                  </div>
-                  <div className="text-sm text-gray-300">
-                    {getEstimatedTimeRemaining() ? `Tempo restante: ${getEstimatedTimeRemaining()}` : 'Calculando tempo...'}
-                  </div>
-                </div>
-                <div className="w-full bg-gray-700 rounded-full h-2">
-                  <div 
-                    className="bg-red-600 h-2 rounded-full transition-all duration-300" 
-                    style={{ width: `${totalPlaylistsToSearch ? (searchProgress / totalPlaylistsToSearch) * 100 : 0}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
           </div>
         </section>
         
