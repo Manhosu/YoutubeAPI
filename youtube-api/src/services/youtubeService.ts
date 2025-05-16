@@ -263,7 +263,7 @@ class YoutubeService {
       
       const params: Record<string, string> = {
         'part': 'snippet,contentDetails',
-        'maxResults': '50', // Maximizar para reduzir número de chamadas
+        'maxResults': '50', // Máximo permitido pela API do YouTube
         'mine': 'true'
       };
       
@@ -283,35 +283,42 @@ class YoutubeService {
         channelTitle: item.snippet.channelTitle
       }));
       
-      // Atualizar cache apenas se for a primeira página
-      if (!pageToken) {
-        const cacheEntry = {
-          playlists,
-          nextPageToken: data.nextPageToken,
-          timestamp: Date.now()
-        };
-        
-        if (accountId) {
-          this.accountPlaylistsCache.set(accountId, cacheEntry);
-          
-          // Se um token específico foi fornecido, mapeá-lo ao accountId
-          if (providedToken) {
-            this.tokenToUserIdMap.set(providedToken, accountId);
-          }
-        } else {
-          this.myPlaylistsCache = cacheEntry;
+      // Se for página subsequente, buscar as playlists anteriores para acumular
+      let allPlaylists = [...playlists];
+      if (pageToken) {
+        if (accountId && this.accountPlaylistsCache.has(accountId)) {
+          // Obter playlists anteriores do cache específico por conta
+          const previousPlaylists = this.accountPlaylistsCache.get(accountId)!.playlists;
+          allPlaylists = [...previousPlaylists, ...playlists];
+        } else if (this.myPlaylistsCache) {
+          // Obter playlists anteriores do cache padrão
+          const previousPlaylists = this.myPlaylistsCache.playlists;
+          allPlaylists = [...previousPlaylists, ...playlists];
         }
-      } else if (accountId && this.accountPlaylistsCache.has(accountId)) {
-        // Se for paginação, apenas atualizar o nextPageToken
-        const cache = this.accountPlaylistsCache.get(accountId)!;
-        cache.nextPageToken = data.nextPageToken;
-      } else if (this.myPlaylistsCache) {
-        // Se for paginação, apenas atualizar o nextPageToken
-        this.myPlaylistsCache.nextPageToken = data.nextPageToken;
       }
       
+      // Atualizar cache com todas as playlists acumuladas
+      const cacheEntry = {
+        playlists: allPlaylists,
+        nextPageToken: data.nextPageToken,
+        timestamp: Date.now()
+      };
+      
+      if (accountId) {
+        this.accountPlaylistsCache.set(accountId, cacheEntry);
+        
+        // Se um token específico foi fornecido, mapeá-lo ao accountId
+        if (providedToken) {
+          this.tokenToUserIdMap.set(providedToken, accountId);
+        }
+      } else {
+        this.myPlaylistsCache = cacheEntry;
+      }
+      
+      // Para a resposta, se for paginação, retornar apenas as novas playlists
+      // para que o cliente possa acumulá-las corretamente
       return {
-        playlists,
+        playlists: pageToken ? playlists : allPlaylists,
         nextPageToken: data.nextPageToken
       };
     } catch (error) {
