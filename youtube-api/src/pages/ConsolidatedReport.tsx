@@ -250,20 +250,7 @@ const ConsolidatedReport = () => {
                 </p>
               </div>
               
-              <div className="bg-gray-800/30 p-5 rounded-lg">
-                <h3 className="text-lg font-medium text-white mb-3">Inscritos</h3>
-                <div className="flex items-baseline">
-                  <span className="text-2xl font-bold text-white mr-2">
-                    {formatNumber(growthData.growth.custom?.subscribers || growthData.growth.lastMonth.subscribers)}
-                  </span>
-                  <span className={`text-lg font-medium ${growthClass(growthData.growth.custom?.percentageSubscribers || growthData.growth.lastMonth.percentageSubscribers)}`}>
-                    {formatGrowth(growthData.growth.custom?.percentageSubscribers || growthData.growth.lastMonth.percentageSubscribers)}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-400 mt-1">
-                  Comparado ao período anterior
-                </p>
-              </div>
+              
             </div>
           </div>
         </section>
@@ -280,7 +267,6 @@ const ConsolidatedReport = () => {
                     <tr className="border-b border-gray-800">
                       <th className="text-left p-2 text-gray-400">Canal</th>
                       <th className="text-right p-2 text-gray-400">Visualizações</th>
-                      <th className="text-right p-2 text-gray-400">Inscritos</th>
                       <th className="text-right p-2 text-gray-400">Crescimento</th>
                     </tr>
                   </thead>
@@ -292,7 +278,6 @@ const ConsolidatedReport = () => {
                           {index === 0 && <span className="ml-2 text-xs bg-green-600/20 px-2 py-0.5 rounded-full text-green-400">Maior Crescimento</span>}
                         </td>
                         <td className="p-2 text-gray-300 text-right">{formatNumber(channel.views)}</td>
-                        <td className="p-2 text-gray-300 text-right">{formatNumber(channel.subscribers || 0)}</td>
                         <td className={`p-2 font-medium text-right ${growthClass(channel.growthPercentage)}`}>
                           {formatGrowth(channel.growthPercentage)}
                         </td>
@@ -384,7 +369,6 @@ const ConsolidatedReport = () => {
                     <tr className="border-b border-gray-800">
                       <th className="text-left p-2 text-gray-400">Mês</th>
                       <th className="text-right p-2 text-gray-400">Visualizações</th>
-                      <th className="text-right p-2 text-gray-400">Inscritos</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -392,7 +376,6 @@ const ConsolidatedReport = () => {
                       <tr key={month.month} className="border-b border-gray-800/50 hover:bg-gray-800/20">
                         <td className="p-2 text-white">{month.month}</td>
                         <td className="p-2 text-gray-300 text-right">{formatNumber(month.views)}</td>
-                        <td className="p-2 text-gray-300 text-right">{formatNumber(month.subscribers)}</td>
                       </tr>
                     ))}
                   </tbody>

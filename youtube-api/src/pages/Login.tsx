@@ -21,8 +21,7 @@ const Login = () => {
     return () => clearTimeout(timer);
   }, [user, isLoading, navigate]);
   
-  const handleGoogleLogin = async (e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleGoogleLogin = async () => {
     try {
       await signInWithGoogle();
     } catch (error) {
@@ -62,14 +61,14 @@ const Login = () => {
           
           <button
             onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center bg-red-600 text-white py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 relative overflow-hidden group"
+            className="w-full flex items-center justify-center bg-red-600 text-white py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 relative overflow-hidden group cursor-pointer"
             disabled={isLoading}
           >
             {/* Efeito de brilho no botão */}
-            <span className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out"></span>
+            <span className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out pointer-events-none"></span>
             
             {isLoading ? (
-              <div className="flex items-center">
+              <div className="flex items-center pointer-events-none">
                 <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -77,7 +76,7 @@ const Login = () => {
                 <span>Carregando...</span>
               </div>
             ) : (
-              <div className="flex items-center">
+              <div className="flex items-center w-full justify-center pointer-events-none">
                 <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
                   <path
                     fill="currentColor"
