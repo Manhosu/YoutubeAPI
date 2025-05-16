@@ -341,4 +341,428 @@ async getPlaylistItems(
     console.error(`Erro ao obter itens da playlist ${playlistId}:`, error);
     return [];
   }
+}
+
+// Interface para dados do Analytics
+interface PlaylistAnalytics {
+  views: number;
+  likes: number;
+  averageViewDuration: string;
+  averageViewPercentage: number;
+  startDate: string;
+  endDate: string;
+  dailyStats: {
+    date: string;
+    views: number;
+    likes: number;
+    averageViewDuration: string;
+    averageViewPercentage: number;
+  }[];
+  videoStats: {
+    videoId: string;
+    title: string;
+    views: number;
+    likes: number;
+    averageViewDuration: string;
+    averageViewPercentage: number;
+  }[];
+}
+
+// Método para buscar dados do YouTube Analytics
+async getPlaylistAnalytics(
+  playlistId: string,
+  startDate: string,
+  endDate: string,
+  accountId?: string
+): Promise<PlaylistAnalytics | null> {
+  try {
+    // Obter token de acesso
+    let token;
+    if (accountId) {
+      const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
+      const account = accounts.find((acc: any) => acc.id === accountId);
+      if (account && account.providerToken) {
+        token = account.providerToken;
+      }
+    }
+
+    if (!token) {
+      console.error('Token não encontrado para análise da playlist');
+      return null;
+    }
+
+    // Primeiro, precisamos obter os IDs dos vídeos da playlist
+    const playlistItems = await this.getPlaylistItems(playlistId, undefined, true, accountId);
+    const videoIds = playlistItems.map(item => item.videoId).join(',');
+
+    if (!videoIds) {
+      console.error('Nenhum vídeo encontrado na playlist');
+      return null;
+    }
+
+    // Parâmetros para a requisição do Analytics
+    const analyticsParams = {
+      'ids': 'channel==MINE',
+      'metrics': 'views,likes,averageViewDuration,averageViewPercentage',
+      'dimensions': 'video,day',
+      'filters': `video==${videoIds}`,
+      'startDate': startDate,
+      'endDate': endDate,
+      'sort': 'day'
+    };
+
+    // Fazer requisição para a API do Analytics
+    const analyticsData = await this.fetchFromYoutube(
+      'youtubeAnalytics/v2/reports',
+      analyticsParams,
+      token
+    );
+
+    if (!analyticsData || !analyticsData.rows) {
+      console.error('Dados do Analytics não disponíveis');
+      return null;
+    }
+
+    // Processar dados diários
+    const dailyStats: any[] = [];
+    const videoStatsMap = new Map();
+
+    analyticsData.rows.forEach((row: any) => {
+      const [videoId, date, views, likes, duration, percentage] = row;
+      
+      // Atualizar estatísticas do vídeo
+      if (!videoStatsMap.has(videoId)) {
+        const video = playlistItems.find(item => item.videoId === videoId);
+        videoStatsMap.set(videoId, {
+          videoId,
+          title: video?.title || 'Vídeo não encontrado',
+          views: 0,
+          likes: 0,
+          averageViewDuration: 0,
+          averageViewPercentage: 0,
+          daysWithData: 0
+        });
+      }
+
+      const videoStats = videoStatsMap.get(videoId);
+      videoStats.views += parseInt(views) || 0;
+      videoStats.likes += parseInt(likes) || 0;
+      videoStats.averageViewDuration += parseFloat(duration) || 0;
+      videoStats.averageViewPercentage += parseFloat(percentage) || 0;
+      videoStats.daysWithData++;
+
+      // Atualizar estatísticas diárias
+      const existingDayStats = dailyStats.find(d => d.date === date);
+      if (existingDayStats) {
+        existingDayStats.views += parseInt(views) || 0;
+        existingDayStats.likes += parseInt(likes) || 0;
+        existingDayStats.averageViewDuration += parseFloat(duration) || 0;
+        existingDayStats.averageViewPercentage += parseFloat(percentage) || 0;
+        existingDayStats.videosCount++;
+      } else {
+        dailyStats.push({
+          date,
+          views: parseInt(views) || 0,
+          likes: parseInt(likes) || 0,
+          averageViewDuration: parseFloat(duration) || 0,
+          averageViewPercentage: parseFloat(percentage) || 0,
+          videosCount: 1
+        });
+      }
+    });
+
+    // Calcular médias para estatísticas diárias
+    const processedDailyStats = dailyStats.map(day => ({
+      date: day.date,
+      views: day.views,
+      likes: day.likes,
+      averageViewDuration: this.formatDuration(day.averageViewDuration / day.videosCount),
+      averageViewPercentage: parseFloat((day.averageViewPercentage / day.videosCount).toFixed(2))
+    }));
+
+    // Calcular médias para estatísticas dos vídeos
+    const processedVideoStats = Array.from(videoStatsMap.values()).map(video => ({
+      videoId: video.videoId,
+      title: video.title,
+      views: video.views,
+      likes: video.likes,
+      averageViewDuration: this.formatDuration(video.averageViewDuration / video.daysWithData),
+      averageViewPercentage: parseFloat((video.averageViewPercentage / video.daysWithData).toFixed(2))
+    }));
+
+    // Calcular totais e médias gerais
+    const totalViews = processedVideoStats.reduce((sum, video) => sum + video.views, 0);
+    const totalLikes = processedVideoStats.reduce((sum, video) => sum + video.likes, 0);
+    const averageViewDuration = this.formatDuration(
+      processedVideoStats.reduce((sum, video) => {
+        const [minutes, seconds] = video.averageViewDuration.split(':').map(Number);
+        return sum + (minutes * 60 + seconds);
+      }, 0) / processedVideoStats.length
+    );
+    const averageViewPercentage = parseFloat(
+      (processedVideoStats.reduce((sum, video) => sum + video.averageViewPercentage, 0) / 
+      processedVideoStats.length).toFixed(2)
+    );
+
+    return {
+      views: totalViews,
+      likes: totalLikes,
+      averageViewDuration,
+      averageViewPercentage,
+      startDate,
+      endDate,
+      dailyStats: processedDailyStats,
+      videoStats: processedVideoStats.sort((a, b) => b.views - a.views)
+    };
+  } catch (error) {
+    console.error('Erro ao buscar dados do Analytics:', error);
+    return null;
+  }
+}
+
+// Método auxiliar para formatar duração
+private formatDuration(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+// Gerar relatório combinado para exportação
+async generateConsolidatedReport(
+  accountIds: string[], 
+  isGrowthReport = false, 
+  dateRange?: { startDate: string; endDate: string }
+): Promise<any> {
+  const data = await this.getConsolidatedData(accountIds);
+  
+  // Relatório básico padrão
+  const baseReport = {
+    reportDate: new Date().toISOString(),
+    summary: {
+      totalAccounts: accountIds.length,
+      totalChannels: data.channels.length,
+      totalPlaylists: data.playlists.length,
+      totalVideos: data.totalVideos,
+      totalViews: data.totalViews
+    },
+    channels: data.channels.map(channel => ({
+      id: channel.id,
+      title: channel.title,
+      customUrl: channel.customUrl || ''
+    })),
+    playlists: await Promise.all(data.playlists.map(async playlist => {
+      // Buscar dados do Analytics para cada playlist
+      let analyticsData = null;
+      if (dateRange) {
+        analyticsData = await this.getPlaylistAnalytics(
+          playlist.id,
+          dateRange.startDate,
+          dateRange.endDate,
+          accountIds[0] // Usando a primeira conta como referência
+        );
+      }
+
+      return {
+        id: playlist.id,
+        title: playlist.title,
+        channelId: playlist.channelId,
+        channelTitle: playlist.channelTitle,
+        itemCount: playlist.itemCount,
+        totalViews: analyticsData?.views || playlist.totalViews || 0,
+        analytics: analyticsData ? {
+          likes: analyticsData.likes,
+          averageViewDuration: analyticsData.averageViewDuration,
+          averageViewPercentage: analyticsData.averageViewPercentage
+        } : null
+      };
+    }))
+  };
+  
+  // Se não for relatório de crescimento, retorna o padrão
+  if (!isGrowthReport || !dateRange) {
+    return baseReport;
+  }
+  
+  // Para relatório de crescimento, adiciona métricas adicionais
+  try {
+    const startDate = new Date(dateRange.startDate);
+    const endDate = new Date(dateRange.endDate);
+    
+    // Calcular duração do período em dias
+    const periodDuration = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Gerar dados de crescimento por canal usando Analytics
+    const channelGrowthData = await Promise.all(data.channels.map(async channel => {
+      // Buscar dados do Analytics para todos os vídeos do canal
+      const channelVideos = data.playlists
+        .filter(p => p.channelId === channel.id)
+        .flatMap(p => p.items || []);
+      
+      const videoIds = channelVideos.map(v => v.videoId).join(',');
+      
+      if (!videoIds) {
+        return {
+          id: channel.id,
+          title: channel.title,
+          views: 0,
+          likes: 0,
+          growthPercentage: 0,
+          customUrl: channel.customUrl || ''
+        };
+      }
+
+      // Buscar dados do Analytics
+      const analyticsParams = {
+        'ids': 'channel==MINE',
+        'metrics': 'views,likes',
+        'dimensions': 'video',
+        'filters': `video==${videoIds}`,
+        'startDate': dateRange.startDate,
+        'endDate': dateRange.endDate
+      };
+
+      const analyticsData = await this.fetchFromYoutube(
+        'youtubeAnalytics/v2/reports',
+        analyticsParams,
+        accountIds[0] // Usando a primeira conta como referência
+      );
+
+      if (!analyticsData || !analyticsData.rows) {
+        return {
+          id: channel.id,
+          title: channel.title,
+          views: 0,
+          likes: 0,
+          growthPercentage: 0,
+          customUrl: channel.customUrl || ''
+        };
+      }
+
+      // Somar dados de todos os vídeos
+      const totalStats = analyticsData.rows.reduce((acc: any, row: any) => ({
+        views: acc.views + (parseInt(row[1]) || 0),
+        likes: acc.likes + (parseInt(row[2]) || 0)
+      }), { views: 0, likes: 0 });
+
+      return {
+        id: channel.id,
+        title: channel.title,
+        views: totalStats.views,
+        likes: totalStats.likes,
+        growthPercentage: 0, // Será calculado depois
+        customUrl: channel.customUrl || ''
+      };
+    }));
+    
+    // Ordenar canais por visualizações
+    const sortedChannels = [...channelGrowthData].sort((a, b) => b.views - a.views);
+    
+    // Calcular crescimento e tendências para o período
+    const customGrowthData = {
+      views: channelGrowthData.reduce((sum, channel) => sum + channel.views, 0),
+      likes: channelGrowthData.reduce((sum, channel) => sum + channel.likes, 0),
+      percentageViews: 0,
+      percentageLikes: 0
+    };
+    
+    // Gerar dados de vídeos em alta usando Analytics
+    const topVideos = await Promise.all(
+      data.playlists.flatMap(p => p.items || [])
+        .slice(0, 10) // Limitar a 10 vídeos para performance
+        .map(async video => {
+          const analyticsData = await this.fetchFromYoutube(
+            'youtubeAnalytics/v2/reports',
+            {
+              'ids': 'channel==MINE',
+              'metrics': 'views,likes',
+              'dimensions': 'video',
+              'filters': `video==${video.videoId}`,
+              'startDate': dateRange.startDate,
+              'endDate': dateRange.endDate
+            },
+            accountIds[0]
+          );
+
+          if (!analyticsData || !analyticsData.rows || !analyticsData.rows[0]) {
+            return null;
+          }
+
+          const row = analyticsData.rows[0];
+          return {
+            id: video.videoId,
+            title: video.title,
+            views: parseInt(row[1]) || 0,
+            likes: parseInt(row[2]) || 0
+          };
+        })
+    );
+
+    // Filtrar vídeos sem dados e ordenar por visualizações
+    const validTopVideos = topVideos
+      .filter((v): v is NonNullable<typeof v> => v !== null)
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 5);
+    
+    // Gerar dados de tendências mensais usando Analytics
+    const generateMonthlyTrends = async () => {
+      const months = [];
+      const currentDate = new Date(endDate);
+      const monthCount = Math.min(Math.max(Math.ceil(periodDuration / 30), 3), 6);
+      
+      for (let i = 0; i < monthCount; i++) {
+        const monthEndDate = format(currentDate, 'yyyy-MM-dd');
+        currentDate.setDate(currentDate.getDate() - 30);
+        const monthStartDate = format(currentDate, 'yyyy-MM-dd');
+        
+        // Buscar dados do Analytics para o mês
+        const monthlyData = await this.fetchFromYoutube(
+          'youtubeAnalytics/v2/reports',
+          {
+            'ids': 'channel==MINE',
+            'metrics': 'views,estimatedMinutesWatched,likes,subscribersGained',
+            'startDate': monthStartDate,
+            'endDate': monthEndDate
+          },
+          accountIds[0]
+        );
+
+        if (monthlyData && monthlyData.rows && monthlyData.rows[0]) {
+          const [views, watchTime, likes, subscribers] = monthlyData.rows[0];
+          months.push({
+            month: format(currentDate, 'MMM/yy', { locale: ptBR }),
+            views: parseInt(views) || 0,
+            watchTimeMinutes: parseInt(watchTime) || 0,
+            likes: parseInt(likes) || 0,
+            subscribers: parseInt(subscribers) || 0
+          });
+        }
+      }
+      
+      return months.reverse();
+    };
+    
+    const growthReport = {
+      ...baseReport,
+      reportType: 'growth',
+      dateRange: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      },
+      growth: {
+        custom: customGrowthData
+      },
+      topPerformers: {
+        channels: sortedChannels,
+        videos: validTopVideos
+      },
+      trends: {
+        monthly: await generateMonthlyTrends()
+      }
+    };
+    
+    return growthReport;
+  } catch (error) {
+    console.error('Erro ao calcular dados de crescimento:', error);
+    return baseReport;
+  }
 } 

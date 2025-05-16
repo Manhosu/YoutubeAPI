@@ -19,6 +19,13 @@ export interface YoutubePlaylist {
   totalViews?: number; // Total de visualizações da playlist
 }
 
+export interface PlaylistViewStats {
+  playlistId: string;
+  playlistTitle: string;
+  viewCount: number;
+  lastUpdated: string;
+}
+
 export interface YoutubeVideo {
   id: string;
   title: string;
@@ -32,6 +39,7 @@ export interface YoutubeVideo {
   publishedAt: string;
   lastUpdated?: string; // When the stats were last updated
   playlists?: YoutubePlaylist[];
+  playlistViews?: PlaylistViewStats[]; // New field to track views per playlist
 }
 
 export interface PlaylistVideoItem {
@@ -47,6 +55,7 @@ export interface PlaylistVideoItem {
   channelTitle?: string;
   publishedAt?: string;
   lastUpdated?: string; // When the stats were last updated
+  playlistViews?: PlaylistViewStats[];
 }
 
 // Interface para resultados de pesquisa global em todas as playlists
@@ -59,6 +68,13 @@ export interface VideoSearchResult {
 export interface PlaylistWithFoundVideos {
   playlist: YoutubePlaylist;
   foundVideos: PlaylistVideoItem[];
+}
+
+// Nova interface para estatísticas resumidas de playlist
+export interface PlaylistStats {
+  playlistId: string;
+  totalViews: number;
+  lastUpdated: string;
 }
 
 class YoutubeService {
@@ -555,117 +571,85 @@ class YoutubeService {
   
   // Método para obter itens de uma playlist com estatísticas
   async getPlaylistItems(
-    playlistId: string, 
-    pageToken?: string, 
+    playlistId: string,
+    pageToken?: string,
     forceRefresh = false,
     accountId?: string,
     providedToken?: string
   ): Promise<PlaylistVideoItem[]> {
     try {
-      // Verificar cache específico por conta ou cache padrão
-      const cacheKey = playlistId;
-      let playlistItemsCache: Map<string, { data: PlaylistVideoItem[], timestamp: number }>;
-      
-      // Determinar qual cache usar com base no accountId
-      if (accountId) {
-        if (!this.accountPlaylistCache.has(accountId)) {
-          this.accountPlaylistCache.set(accountId, new Map());
+      // Check cache first
+      const cacheKey = `playlist_${playlistId}`;
+      const cachedItems = this.playlistCache.get(cacheKey);
+      if (!forceRefresh && cachedItems && Date.now() - cachedItems.timestamp < this.REFRESH_INTERVAL) {
+        return cachedItems.data;
+      }
+
+      const allItems: PlaylistVideoItem[] = [];
+      let nextPageToken = pageToken;
+
+      do {
+        // Get playlist items from YouTube API
+        const params: Record<string, string> = {
+          'part': 'snippet,contentDetails',
+          'maxResults': '50',
+          'playlistId': playlistId
+        };
+        if (nextPageToken) {
+          params.pageToken = nextPageToken;
         }
-        playlistItemsCache = this.accountPlaylistCache.get(accountId)!;
-      } else {
-        playlistItemsCache = this.playlistCache;
-      }
-      
-      // Verificar se temos dados em cache e se não está forçando atualização
-      if (!forceRefresh && playlistItemsCache.has(cacheKey) && !this.needsRefresh(playlistItemsCache.get(cacheKey)!.timestamp)) {
-        console.log(`Usando cache para itens da playlist ${playlistId}`);
-        return playlistItemsCache.get(cacheKey)!.data;
-      }
-      
-      // Se estamos buscando a primeira página ou forçando atualização, resetar os itens
-      const allItems: PlaylistVideoItem[] = pageToken ? 
-        (playlistItemsCache.get(cacheKey)?.data || []) : [];
-      
-      // Parâmetros para a requisição
-      const params: Record<string, string> = {
-        'part': 'snippet,contentDetails',
-        'maxResults': '50',
-        'playlistId': playlistId
-      };
-      
-      if (pageToken) {
-        params.pageToken = pageToken;
-      }
-      
-      // Obter token de acesso específico da conta, se fornecido
-      let token = providedToken;
-      if (!token && accountId) {
-        // Tentar buscar o token do mapeamento
-        const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
-        const account = accounts.find((acc: any) => acc.id === accountId);
-        if (account && account.providerToken) {
-          token = account.providerToken;
+
+        const data = await this.fetchFromYoutube('playlistItems', params, providedToken);
+        
+        if (!data.items || data.items.length === 0) break;
+
+        // Get video IDs for batch request
+        const videoIds = data.items.map((item: any) => item.contentDetails.videoId).join(',');
+        
+        // Get video details in batch
+        const videoParams: Record<string, string> = {
+          'part': 'statistics,snippet',
+          'id': videoIds
+        };
+        const videoData = await this.fetchFromYoutube('videos', videoParams, providedToken);
+        const videoMap = new Map(videoData.items.map((item: any) => [item.id, item]));
+
+        // Process each playlist item
+        for (const item of data.items) {
+          const videoId = item.contentDetails.videoId;
+          const videoDetails = videoMap.get(videoId);
+          
+          if (videoDetails) {
+            allItems.push({
+              playlistId,
+              videoId,
+              title: item.snippet.title,
+              thumbnailUrl: 
+                item.snippet.thumbnails?.high?.url || 
+                item.snippet.thumbnails?.medium?.url || 
+                item.snippet.thumbnails?.default?.url,
+              position: item.snippet.position,
+              viewCount: parseInt(videoDetails.statistics.viewCount) || 0,
+              likeCount: parseInt(videoDetails.statistics.likeCount) || 0,
+              channelTitle: videoDetails.snippet.channelTitle,
+              publishedAt: item.snippet.publishedAt,
+              lastUpdated: new Date().toISOString()
+            });
+          }
         }
-      }
-      
-      // Fazer a requisição com o token apropriado
-      const data = await this.fetchFromYoutube('playlistItems', params, token);
-      
-      // Processar os itens recebidos
-      const items = data.items.map((item: any, index: number) => ({
-        playlistId,
-        videoId: item.contentDetails.videoId,
-        title: item.snippet.title,
-        thumbnailUrl: 
-          item.snippet.thumbnails?.high?.url || 
-          item.snippet.thumbnails?.medium?.url || 
-          item.snippet.thumbnails?.default?.url,
-        position: item.snippet.position,
-        channelTitle: item.snippet.channelTitle,
-        publishedAt: item.snippet.publishedAt
-      }));
-      
-      // Adicionar os novos itens à lista
-      allItems.push(...items);
-      
-      // Se houver mais páginas, buscar recursivamente
-      if (data.nextPageToken) {
-        const nextPageItems = await this.getPlaylistItems(
-          playlistId, 
-          data.nextPageToken, 
-          false, 
-          accountId,
-          token
-        );
-        allItems.push(...nextPageItems);
-      }
-      
-      // Agora buscar estatísticas dos vídeos em lote
-      await this.addVideoStatistics(allItems, accountId, token);
-      
-      // Armazenar no cache
-      playlistItemsCache.set(cacheKey, {
+
+        nextPageToken = data.nextPageToken;
+      } while (nextPageToken);
+
+      // Store in cache
+      this.playlistCache.set(cacheKey, {
         data: allItems,
         timestamp: Date.now()
       });
-      
-      // Persistir cache
-      this.persistCache();
-      
+
       return allItems;
     } catch (error) {
-      console.error(`Erro ao obter itens da playlist ${playlistId}:`, error);
-      
-      // Tentar retornar do cache mesmo que antigo
-      const cacheMap = accountId ? 
-        (this.accountPlaylistCache.get(accountId) || new Map()) : 
-        this.playlistCache;
-      
-      if (cacheMap.has(playlistId)) {
-        console.log(`Retornando dados em cache antigos para playlist ${playlistId} devido a erro`);
-        return cacheMap.get(playlistId)!.data;
-      }
-      
+      console.error(`Erro ao buscar itens da playlist ${playlistId}:`, error);
       return [];
     }
   }
@@ -1405,87 +1389,80 @@ class YoutubeService {
     providedToken?: string
   ): Promise<YoutubeVideo | null> {
     try {
-      // Verificar cache
-      if (this.videoCache.has(videoId) && !this.needsRefresh(this.videoCache.get(videoId)!.timestamp)) {
-        return this.videoCache.get(videoId)!.data;
+      // Check cache first
+      const cachedVideo = this.videoCache.get(videoId);
+      if (cachedVideo && Date.now() - cachedVideo.timestamp < this.REFRESH_INTERVAL) {
+        return cachedVideo.data;
       }
-      
-      // Obter token de acesso específico da conta, se fornecido
-      let token = providedToken;
-      if (!token && accountId) {
-        // Tentar buscar o token do mapeamento
-        const accounts = JSON.parse(localStorage.getItem('youtube_analyzer_accounts') || '[]');
-        const account = accounts.find((acc: any) => acc.id === accountId);
-        if (account && account.providerToken) {
-          token = account.providerToken;
-        }
-      }
-      
-      // Parâmetros para a requisição
-      const params: Record<string, string> = {
+
+      // Get video data from YouTube API
+      const videoData = await this.fetchFromYoutube('videos', {
         'part': 'snippet,statistics',
         'id': videoId
-      };
-      
-      // Fazer a requisição com o token apropriado
-      const data = await this.fetchFromYoutube('videos', params, token);
-      
-      if (!data.items || data.items.length === 0) {
-        return null;
-      }
-      
-      const videoData = data.items[0];
-      
-      // Buscar playlists que contêm este vídeo
-      const { playlists } = await this.getMyPlaylists(undefined, accountId, providedToken);
+      }, providedToken);
+      if (!videoData || !videoData.items || videoData.items.length === 0) return null;
+
+      // Get all playlists for the account
+      const playlists = await this.getMyPlaylists(undefined, accountId);
       const videoPlaylists: YoutubePlaylist[] = [];
-      
-      // Para cada playlist, verificar se contém o vídeo
+      const playlistViews: PlaylistViewStats[] = [];
+
+      // Para cada playlist, verificar se contém o vídeo e coletar estatísticas
       await Promise.all(
-        playlists.map(async (playlist) => {
+        playlists.playlists.map(async (playlist) => {
           try {
             const playlistItems = await this.getPlaylistItems(
-              playlist.id, 
-              undefined, 
-              false, 
+              playlist.id,
+              undefined,
+              false,
               accountId,
               providedToken
             );
-            
-            // Se o vídeo estiver nesta playlist, adicioná-la à lista
-            if (playlistItems.some(item => item.videoId === videoId)) {
+
+            // Se o vídeo estiver nesta playlist
+            const videoInPlaylist = playlistItems.find(item => item.videoId === videoId);
+            if (videoInPlaylist) {
               videoPlaylists.push(playlist);
+              
+              // Adicionar estatísticas de visualização da playlist
+              playlistViews.push({
+                playlistId: playlist.id,
+                playlistTitle: playlist.title,
+                viewCount: videoInPlaylist.viewCount || 0,
+                lastUpdated: new Date().toISOString()
+              });
             }
           } catch (error) {
             console.error(`Erro ao verificar playlist ${playlist.id}:`, error);
           }
         })
       );
-      
+
       // Criar objeto do vídeo
       const video: YoutubeVideo = {
-        id: videoData.id,
-        title: videoData.snippet.title,
-        description: videoData.snippet.description || '',
-        thumbnailUrl: 
-          videoData.snippet.thumbnails?.high?.url || 
-          videoData.snippet.thumbnails?.medium?.url || 
-          videoData.snippet.thumbnails?.default?.url,
-        channelId: videoData.snippet.channelId,
-        channelTitle: videoData.snippet.channelTitle,
-        viewCount: parseInt(videoData.statistics.viewCount) || 0,
-        likeCount: parseInt(videoData.statistics.likeCount) || 0,
-        publishedAt: videoData.snippet.publishedAt,
+        id: videoData.items[0].id,
+        title: videoData.items[0].snippet.title,
+        description: videoData.items[0].snippet.description || '',
+        thumbnailUrl:
+          videoData.items[0].snippet.thumbnails?.high?.url ||
+          videoData.items[0].snippet.thumbnails?.medium?.url ||
+          videoData.items[0].snippet.thumbnails?.default?.url,
+        channelId: videoData.items[0].snippet.channelId,
+        channelTitle: videoData.items[0].snippet.channelTitle,
+        viewCount: parseInt(videoData.items[0].statistics.viewCount) || 0,
+        likeCount: parseInt(videoData.items[0].statistics.likeCount) || 0,
+        publishedAt: videoData.items[0].snippet.publishedAt,
         lastUpdated: new Date().toISOString(),
-        playlists: videoPlaylists
+        playlists: videoPlaylists,
+        playlistViews: playlistViews
       };
-      
+
       // Armazenar em cache
       this.videoCache.set(videoId, {
         data: video,
         timestamp: Date.now()
       });
-      
+
       return video;
     } catch (error) {
       console.error(`Erro ao buscar vídeo ${videoId}:`, error);
@@ -1513,6 +1490,50 @@ class YoutubeService {
     } catch (error) {
       console.error(`Erro ao buscar vídeo pela URL ${url}:`, error);
       return null;
+    }
+  }
+
+  // Método para buscar estatísticas de visualização para playlists específicas
+  async getPlaylistViewStats(playlistIds: string[], accountId?: string): Promise<PlaylistStats[]> {
+    try {
+      console.log(`Buscando estatísticas para ${playlistIds.length} playlists`);
+      const results: PlaylistStats[] = [];
+      
+      // Processar cada playlist individualmente
+      for (const playlistId of playlistIds) {
+        try {
+          // Obter todos os vídeos da playlist
+          const playlistItems = await this.getPlaylistItems(playlistId, undefined, true, accountId);
+          
+          // Somar as visualizações de todos os vídeos na playlist
+          const totalViews = playlistItems.reduce((sum, item) => {
+            // Garantir que viewCount seja um número
+            const views = item.viewCount !== undefined ? item.viewCount : 0;
+            return sum + views;
+          }, 0);
+          
+          results.push({
+            playlistId,
+            totalViews,
+            lastUpdated: new Date().toISOString()
+          });
+          
+          console.log(`Playlist ${playlistId}: ${totalViews} visualizações`);
+        } catch (error) {
+          console.error(`Erro ao buscar estatísticas da playlist ${playlistId}:`, error);
+          // Adicionar entrada com 0 visualizações em caso de erro
+          results.push({
+            playlistId,
+            totalViews: 0,
+            lastUpdated: new Date().toISOString()
+          });
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('Erro geral ao buscar estatísticas das playlists:', error);
+      return [];
     }
   }
 }

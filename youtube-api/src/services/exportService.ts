@@ -1,29 +1,31 @@
-// Definição local da interface PlaylistVideoItem para evitar problemas de importação
-interface PlaylistVideoItem {
-  playlistId: string;
-  videoId: string;
-  title: string;
-  thumbnailUrl: string;
-  position: number;
-  viewCount?: number;
-  likeCount?: number;
-  dislikeCount?: number;
-  estimatedViews?: number;
-  channelTitle?: string;
-  publishedAt?: string;
-  lastUpdated?: string;
-}
+import { PlaylistVideoItem } from './youtubeService';
+import { videoTrackingService } from './videoTrackingService';
 
 interface ExportData {
   title: string;
   viewCount: number;
   likeCount: number;
   lastUpdated: string;
+  [key: string]: any;
+}
+
+interface ChannelExportData {
+  id: string;
+  title: string;
+  subscribers: number; 
+  totalViews: number;
+  videoCount: number;
+  playlists: {
+    id: string;
+    title: string;
+    itemCount: number;
+    totalViews: number;
+  }[];
 }
 
 export class ExportService {
   /**
-   * Exporta dados de um vídeo para CSV
+   * Exporta dados de um único vídeo para CSV
    */
   exportVideoToCSV(video: PlaylistVideoItem): void {
     const data: ExportData = {
@@ -81,65 +83,133 @@ export class ExportService {
     const jsonContent = JSON.stringify(data, null, 2);
     this.downloadFile(jsonContent, `${this.sanitizeFileName(playlistTitle)}.json`, 'application/json');
   }
+
+  /**
+   * Exporta dados completos de um canal para CSV
+   */
+  exportChannelToCSV(channelData: ChannelExportData): void {
+    // Cabeçalho do canal
+    let csvContent = `Canal: ${channelData.title}\n`;
+    csvContent += `ID: ${channelData.id}\n`;
+    csvContent += `Inscritos: ${channelData.subscribers}\n`;
+    csvContent += `Total de visualizações: ${channelData.totalViews}\n`;
+    csvContent += `Total de vídeos: ${channelData.videoCount}\n\n`;
+    
+    // Seção de playlists
+    csvContent += `Playlists (${channelData.playlists.length}):\n`;
+    csvContent += 'ID,Título,Vídeos,Visualizações\n';
+    
+    channelData.playlists.forEach(playlist => {
+      csvContent += `${playlist.id},${this.escapeCSVField(playlist.title)},${playlist.itemCount},${playlist.totalViews}\n`;
+    });
+    
+    this.downloadFile(csvContent, `canal-${this.sanitizeFileName(channelData.title)}.csv`, 'text/csv');
+  }
   
+  /**
+   * Exporta dados completos de um canal para JSON
+   */
+  exportChannelToJSON(channelData: ChannelExportData): void {
+    const jsonContent = JSON.stringify(channelData, null, 2);
+    this.downloadFile(jsonContent, `canal-${this.sanitizeFileName(channelData.title)}.json`, 'application/json');
+  }
+
+  /**
+   * Exporta impacto de playlists em um vídeo
+   * Usa o videoTrackingService diretamente para obter dados detalhados
+   */
+  exportVideoImpactData(videoId: string, format: 'csv' | 'json'): void {
+    try {
+      videoTrackingService.exportImpactData(videoId, format);
+    } catch (error) {
+      console.error('Erro ao exportar dados de impacto:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Exporta um conjunto arbitrário de dados para CSV
+   */
+  exportDataToCSV(data: any, filename: string): void {
+    let csvContent;
+    
+    // Verificar se é um array de objetos
+    if (Array.isArray(data)) {
+      csvContent = this.convertToCSV(data);
+    } else {
+      // Para objetos não arrays, criar um formato plano
+      csvContent = Object.entries(data)
+        .map(([key, value]) => `${key},${this.escapeCSVField(String(value))}`)
+        .join('\n');
+    }
+    
+    this.downloadFile(csvContent, `${this.sanitizeFileName(filename)}.csv`, 'text/csv');
+  }
+  
+  /**
+   * Exporta um conjunto arbitrário de dados para JSON
+   */
+  exportDataToJSON(data: any, filename: string): void {
+    const jsonContent = JSON.stringify(data, null, 2);
+    this.downloadFile(jsonContent, `${this.sanitizeFileName(filename)}.json`, 'application/json');
+  }
+
   /**
    * Converte array de objetos para formato CSV
    */
-  private convertToCSV(data: ExportData[]): string {
-    // Cabeçalho CSV
-    const header = 'Título,Visualizações,Likes,Atualizado em\n';
+  private convertToCSV(items: ExportData[]): string {
+    if (items.length === 0) return '';
     
-    // Linhas de dados
-    const rows = data.map(item => {
-      const title = this.escapeCsvValue(item.title);
-      const viewCount = item.viewCount;
-      const likeCount = item.likeCount;
-      const lastUpdated = new Date(item.lastUpdated).toLocaleString('pt-BR');
-      
-      return `${title},${viewCount},${likeCount},${lastUpdated}`;
-    }).join('\n');
+    // Cria cabeçalho com todas as chaves possíveis
+    const headers = Object.keys(items[0]);
     
-    return header + rows;
+    // Cria linhas de dados
+    const rows = items.map(item => 
+      headers
+        .map(header => this.escapeCSVField(String(item[header] || '')))
+        .join(',')
+    );
+    
+    return [
+      headers.join(','),
+      ...rows
+    ].join('\n');
   }
   
   /**
-   * Escapa valores para CSV (evita problemas com vírgulas no texto)
+   * Escapa campos para formato CSV
    */
-  private escapeCsvValue(value: string): string {
-    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-      // Substitui aspas duplas por duas aspas duplas e envolve em aspas
-      return `"${value.replace(/"/g, '""')}"`;
+  private escapeCSVField(field: string): string {
+    // Se o campo contém vírgulas, quebras de linha ou aspas, envolva em aspas e escape aspas internas
+    if (field.includes(',') || field.includes('\n') || field.includes('"')) {
+      return `"${field.replace(/"/g, '""')}"`;
     }
-    return value;
+    return field;
   }
   
   /**
-   * Sanitiza o nome do arquivo removendo caracteres inválidos
+   * Sanitiza o nome do arquivo para compatibilidade com sistemas de arquivos
    */
-  private sanitizeFileName(fileName: string): string {
-    return fileName
-      .replace(/[\/\\:*?"<>|]/g, '_')  // Substitui caracteres inválidos por underscores
-      .substring(0, 100);  // Limita o tamanho do nome do arquivo
+  private sanitizeFileName(name: string): string {
+    return name
+      .replace(/[/\\?%*:|"<>]/g, '-') // Substitui caracteres inválidos em nomes de arquivo
+      .replace(/\s+/g, '_') // Substitui espaços por underscores
+      .slice(0, 100); // Limita o tamanho do nome
   }
-  
+
   /**
-   * Cria e dispara o download do arquivo
+   * Faz o download do arquivo
    */
   private downloadFile(content: string, fileName: string, contentType: string): void {
     const blob = new Blob([content], { type: contentType });
     const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    
-    // Limpeza
-    setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 100);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 }
 

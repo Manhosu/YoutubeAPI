@@ -16,6 +16,12 @@ interface PlaylistVideoItem {
   channelTitle?: string;
   publishedAt?: string;
   lastUpdated?: string;
+  playlistViews?: Array<{
+    playlistId: string;
+    playlistTitle: string;
+    viewCount: number;
+    lastUpdated: string;
+  }>;
 }
 import ExportModal from '../components/ExportModal';
 import { useMultiAccount } from '../contexts/MultiAccountContext';
@@ -54,51 +60,22 @@ const PlaylistDetails = () => {
       const accountId = activeAccount?.id;
       console.log(`Buscando playlist ${id} para a conta:`, accountId || 'padrão');
       
-      // Buscar todas as playlists do usuário com o ID da conta ativa
-      const allPlaylists = await youtubeService.getMyPlaylists(undefined, accountId);
+      // Buscar a playlist diretamente via API
+      const directPlaylist = await youtubeService.getPlaylistById(id, accountId);
       
-      // Encontrar a playlist específica pelo ID
-      const playlistData = allPlaylists.playlists.find(p => p.id === id);
-      
-      if (!playlistData) {
-        console.error(`Playlist ${id} não encontrada para a conta ${accountId}`);
-        
-        // Tentar buscar a playlist diretamente via API
-        try {
-          console.log("Tentando buscar playlist diretamente via API...");
-          const directPlaylist = await youtubeService.getPlaylistById(id, accountId);
-          
-          if (directPlaylist) {
-            console.log("Playlist encontrada diretamente:", directPlaylist);
-            setPlaylist(directPlaylist);
-            
-            // Buscar os vídeos da playlist (com opção de forçar atualização)
-            const playlistItems = await youtubeService.getPlaylistItems(id, undefined, forceRefresh, accountId);
-            setVideos(playlistItems);
-            setFilteredVideos(playlistItems);
-            
-            // Calcular o total de visualizações
-            const views = playlistItems.reduce((total, video) => total + (video.viewCount || 0), 0);
-            setTotalViews(views);
-            
-            // Limpar erro pois encontramos a playlist
-            setError(null);
-            return;
-          }
-        } catch (directError) {
-          console.error("Erro ao buscar playlist diretamente:", directError);
-        }
-        
+      if (!directPlaylist) {
         setError('Playlist não encontrada. Verifique se você tem acesso a esta playlist na conta atual.');
         setLoading(false);
         setRefreshing(false);
         return;
       }
       
-      setPlaylist(playlistData);
+      console.log("Playlist encontrada:", directPlaylist);
+      setPlaylist(directPlaylist);
       
       // Buscar os vídeos da playlist (com opção de forçar atualização)
       const playlistItems = await youtubeService.getPlaylistItems(id, undefined, forceRefresh, accountId);
+      console.log("Vídeos encontrados:", playlistItems.length);
       setVideos(playlistItems);
       setFilteredVideos(playlistItems);
       
@@ -173,6 +150,14 @@ const PlaylistDetails = () => {
       setSelectedVideo(null);
     }
     setExportModalOpen(true);
+  };
+
+  // Função auxiliar para determinar a cor da barra de progresso com base no impacto
+  const getImpactColor = (percentage: number): string => {
+    if (percentage >= 75) return '#22c55e'; // Verde para alto impacto
+    if (percentage >= 50) return '#3b82f6'; // Azul para impacto médio-alto
+    if (percentage >= 25) return '#f59e0b'; // Amarelo para impacto médio
+    return '#ef4444'; // Vermelho para baixo impacto
   };
 
   return (
@@ -453,6 +438,43 @@ const PlaylistDetails = () => {
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
                                 <span className="font-medium">{formatNumber(video.viewCount)} visualizações</span>
+                              </div>
+                            )}
+                            
+                            {video.playlistViews && video.playlistViews.length > 0 && video.viewCount && (
+                              <div className="mt-2 space-y-1">
+                                <div className="text-sm text-gray-400">Impacto nas playlists:</div>
+                                <div className="grid gap-2">
+                                  {video.playlistViews.map(playlistView => (
+                                    <div key={playlistView.playlistId} className="bg-[#1f1f1f] rounded-lg p-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center text-sm">
+                                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-2 text-blue-400">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+                                          </svg>
+                                          <span className="text-white">{playlistView.playlistTitle}</span>
+                                        </div>
+                                        <span className="text-sm font-medium text-white">{formatNumber(playlistView.viewCount)} views</span>
+                                      </div>
+                                      
+                                      {/* Barra de progresso para visualizar impacto */}
+                                      <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
+                                        <div 
+                                          className="absolute top-0 left-0 h-full bg-blue-500 rounded-full"
+                                          style={{ 
+                                            width: `${(playlistView.viewCount / video.viewCount * 100) || 0}%`,
+                                            backgroundColor: getImpactColor(playlistView.viewCount / video.viewCount * 100)
+                                          }}
+                                        ></div>
+                                      </div>
+                                      
+                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
+                                        <span>Impacto: {((playlistView.viewCount / video.viewCount * 100) || 0).toFixed(1)}%</span>
+                                        <span>Atualizado: {new Date(playlistView.lastUpdated).toLocaleDateString()}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                             
