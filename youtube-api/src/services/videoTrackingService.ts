@@ -413,133 +413,87 @@ class VideoTrackingService {
   // Estima as visualizações recebidas por cada playlist para um vídeo
   async estimatePlaylistViews(videoId: string, accountId?: string): Promise<any[]> {
     try {
-      // Obter o vídeo com suas playlists
+      // Carregar dados do localStorage
+      const storageKey = `youtube_analytics_data_${videoId}`;
+      const storedData = localStorage.getItem(storageKey);
+      let viewsData = storedData ? JSON.parse(storedData) : {};
+
+      // Obter dados atualizados do vídeo
       const video = await youtubeService.getVideoById(videoId, accountId);
-      if (!video || !video.playlists || video.playlists.length === 0) return [];
-      
-      // Obter snapshots para análise de tendência
-      const snapshots = this.getVideoSnapshots(videoId);
-      const hasSnapshots = snapshots.length > 1;
-      
-      // Verificar se podemos usar dados analíticos reais do localStorage (se disponíveis)
-      const analyticsDataKey = `youtube_analytics_data_${videoId}`;
-      let analyticsData = null;
-      try {
-        const storedData = localStorage.getItem(analyticsDataKey);
-        if (storedData) {
-          analyticsData = JSON.parse(storedData);
-        } else {
-          // Se não tiver dados salvos, criar dados iniciais vazios
-          analyticsData = {
-            lastUpdated: new Date().toISOString(),
-            playlists: {}
-          };
-          
-          // Não inicializar com nenhum valor fixo - começa com 0 visualizações
-          // Serão incrementadas apenas quando o usuário realmente registrar visualizações
-          
-          // Salvar os dados iniciais
-          localStorage.setItem(analyticsDataKey, JSON.stringify(analyticsData));
-        }
-      } catch (e) {
-        console.error("Erro ao ler dados analíticos do localStorage:", e);
+      if (!video) {
+        throw new Error('Vídeo não encontrado');
       }
+
+      // Obter todas as playlists que contêm o vídeo
+      const playlists = await youtubeService.getVideoPlaylists(videoId, accountId);
       
-      // Obter estatísticas detalhadas de cada playlist
-      const playlistStats = await Promise.all(
-        video.playlists.map(async (playlist) => {
-          try {
-            // Buscar todas as informações detalhadas da playlist
-            const playlistDetails = await youtubeService.getPlaylistItems(playlist.id, undefined, true, accountId);
-            
-            // Verificar se temos dados do Analytics para esta playlist
-            let viewCount = 0; // Valor padrão é zero - sem visualizações iniciais
-            
-            // Se temos dados analíticos armazenados, use-os
-            if (analyticsData && analyticsData.playlists && analyticsData.playlists[playlist.id]) {
-              viewCount = analyticsData.playlists[playlist.id].viewCount;
-            }
-            
-            // Calcular posição do vídeo na playlist
-            const videoItem = playlistDetails.find(item => item.videoId === videoId);
-            const videoPosition = videoItem ? videoItem.position : 
-              playlistDetails.findIndex(item => item.videoId === videoId);
-            
-            // Calcular a porcentagem para a barra de progresso
-            const percentage = video.viewCount > 0 ? (viewCount / video.viewCount) * 100 : 0.0;
-            
-            return {
-              playlistId: playlist.id,
-              playlistTitle: playlist.title,
-              thumbnailUrl: playlist.thumbnailUrl,
-              itemCount: playlist.itemCount || playlistDetails.length,
-              estimatedViews: viewCount, // Valor real, não estimado
-              percentage: percentage, // Não arredondar, será formatado na interface
-              position: videoPosition >= 0 ? videoPosition + 1 : 'Desconhecida'
-            };
-          } catch (error) {
-            console.error(`Erro ao processar playlist ${playlist.id}:`, error);
-            return {
-              playlistId: playlist.id,
-              playlistTitle: playlist.title,
-              thumbnailUrl: playlist.thumbnailUrl,
-              itemCount: playlist.itemCount || 0,
-              estimatedViews: 0, // Iniciar com 0 - sem valor fixo
-              percentage: 0.0,
-              position: 'Erro',
-              error: 'Falha ao processar esta playlist'
-            };
-          }
-        })
-      );
-      
-      // Ordenar por maior contribuição primeiro
-      return playlistStats.sort((a, b) => b.estimatedViews - a.estimatedViews);
+      // Processar cada playlist
+      const playlistViews = await Promise.all(playlists.map(async (playlist) => {
+        const playlistId = playlist.id;
+        
+        // Inicializar ou recuperar dados da playlist
+        if (!viewsData[playlistId]) {
+          viewsData[playlistId] = {
+            views: 0,
+            lastUpdate: new Date().toISOString()
+          };
+        }
+
+        // Calcular visualizações reais da playlist
+        const playlistData = viewsData[playlistId];
+        const estimatedViews = playlistData.views || 0;
+
+        // Calcular porcentagem em relação ao total
+        const totalViews = Object.values(viewsData).reduce((acc: number, curr: any) => acc + (curr.views || 0), 0);
+        const percentage = totalViews > 0 ? (estimatedViews / totalViews) * 100 : 0;
+
+        return {
+          playlistId: playlist.id,
+          playlistTitle: playlist.title,
+          estimatedViews,
+          percentage,
+          lastUpdate: playlistData.lastUpdate
+        };
+      }));
+
+      // Ordenar por número de visualizações (decrescente)
+      const sortedViews = playlistViews.sort((a, b) => b.estimatedViews - a.estimatedViews);
+
+      // Persistir dados atualizados
+      localStorage.setItem(storageKey, JSON.stringify(viewsData));
+
+      return sortedViews;
     } catch (error) {
       console.error('Erro ao estimar visualizações por playlist:', error);
-      return [];
+      throw error;
     }
   }
   
   // Método para registrar uma visualização vinda de playlist
   registerPlaylistView(videoId: string, playlistId: string): void {
     try {
-      const analyticsDataKey = `youtube_analytics_data_${videoId}`;
-      let analyticsData = null;
-      try {
-        const storedData = localStorage.getItem(analyticsDataKey);
-        if (storedData) {
-          analyticsData = JSON.parse(storedData);
-        }
-      } catch (e) {
-        console.error("Erro ao ler dados analíticos do localStorage:", e);
-      }
-      
-      // Inicializar dados se não existirem
-      if (!analyticsData) {
-        analyticsData = {
-          lastUpdated: new Date().toISOString(),
-          playlists: {}
-        };
-      }
-      
+      const storageKey = `youtube_analytics_data_${videoId}`;
+      const storedData = localStorage.getItem(storageKey);
+      let viewsData = storedData ? JSON.parse(storedData) : {};
+
       // Inicializar dados da playlist se não existirem
-      if (!analyticsData.playlists[playlistId]) {
-        analyticsData.playlists[playlistId] = {
-          viewCount: 0 // Iniciar com 0 - sem valor fixo
+      if (!viewsData[playlistId]) {
+        viewsData[playlistId] = {
+          views: 0,
+          lastUpdate: new Date().toISOString()
         };
       }
-      
-      // Incrementar contagem de visualizações
-      analyticsData.playlists[playlistId].viewCount++;
-      
-      // Atualizar timestamp
-      analyticsData.lastUpdated = new Date().toISOString();
-      
-      // Salvar no localStorage
-      localStorage.setItem(analyticsDataKey, JSON.stringify(analyticsData));
-    } catch (e) {
-      console.error("Erro ao registrar visualização de playlist:", e);
+
+      // Incrementar visualizações
+      viewsData[playlistId].views += 1;
+      viewsData[playlistId].lastUpdate = new Date().toISOString();
+
+      // Persistir dados atualizados
+      localStorage.setItem(storageKey, JSON.stringify(viewsData));
+
+      console.log(`Visualização registrada para playlist ${playlistId} do vídeo ${videoId}`);
+    } catch (error) {
+      console.error('Erro ao registrar visualização:', error);
     }
   }
 

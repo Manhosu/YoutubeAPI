@@ -1,380 +1,61 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --primary-bg: #0f0f0f;
-  --secondary-bg: #1a1a1a;
-  --card-bg: #212121;
-  --card-hover-bg: #2a2a2a;
-  --accent-red: #ff0000;
-  --accent-red-hover: #cc0000;
-  --text-primary: #ffffff;
-  --text-secondary: #aaaaaa;
-  --text-tertiary: #717171;
-  
-  /* Configurações de fonte */
-  --font-heading: 'Space Grotesk', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --font-accent: 'DM Sans', sans-serif;
-}
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
 
 body {
-  background-color: var(--primary-bg);
-  color: var(--text-primary);
-  min-height: 100vh;
-  font-family: var(--font-body);
-  font-weight: 400;
-  line-height: 1.6;
-  overflow-x: hidden;
-  letter-spacing: -0.02em;
+  margin: 0;
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8f9fa;
+  color: #212529;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-heading);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1.2;
+.youtube-analytics {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  margin: 16px;
+  padding: 24px;
 }
 
-button, .btn-primary, .btn-secondary, a.btn-primary, a.btn-secondary {
-  font-family: var(--font-accent);
-  letter-spacing: 0.02em;
+.youtube-analytics-title {
+  color: #212529;
+  font-size: 20px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+.youtube-analytics-subtitle {
+  color: #495057;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.youtube-analytics-value {
+  color: #212529;
+  font-size: 24px;
   font-weight: 500;
 }
 
-/* Estilos globais */
-.card {
-  @apply bg-[#212121] rounded-lg overflow-hidden transition-all duration-300;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(5px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.card:hover {
-  @apply transform hover:scale-[1.02];
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2), 0 5px 10px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.glass-effect {
-  background: rgba(33, 33, 33, 0.7);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-
-.btn-primary {
-  @apply bg-red-600 text-white py-2 px-6 rounded-md font-medium relative overflow-hidden;
-  box-shadow: 0 4px 6px rgba(255, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.btn-primary:hover {
-  @apply bg-red-700;
-  box-shadow: 0 6px 12px rgba(255, 0, 0, 0.2);
-  transform: translateY(-2px);
-}
-
-.btn-primary:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(255, 0, 0, 0.1);
-}
-
-.btn-primary::after {
-  content: '';
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  top: 0;
-  left: -100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.2),
-    transparent
-  );
-  transition: all 0.3s ease;
-}
-
-.btn-primary:hover::after {
-  left: 100%;
-}
-
-.btn-secondary {
-  @apply bg-[#303030] text-white py-2 px-6 rounded-md font-medium;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.btn-secondary:hover {
-  @apply bg-[#404040];
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
-  transform: translateY(-2px);
-}
-
-.input {
-  @apply bg-[#121212] border border-[#303030] text-white px-4 py-2 rounded-md focus:outline-none;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: all 0.3s ease;
-  font-family: var(--font-body);
-}
-
-.input:focus {
-  @apply border-red-500 ring-2 ring-red-500 ring-opacity-50;
-  box-shadow: 0 0 0 2px rgba(255, 0, 0, 0.1);
-}
-
-/* Animações */
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-}
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes floatingUp {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-.loading-pulse {
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
-}
-
-.slide-in-left {
-  animation: slideInLeft 0.5s ease-out forwards;
-}
-
-.slide-in-right {
-  animation: slideInRight 0.5s ease-out forwards;
-}
-
-.floating {
-  animation: floatingUp 3s ease-in-out infinite;
-}
-
-/* Scrollbar personalizada */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--primary-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #505050;
-}
-
-/* Efeito gradiente */
-.gradient-text {
-  background: linear-gradient(90deg, #ff0000, #ff3333);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  font-family: var(--font-heading);
-  font-weight: 700;
-}
-
-.subtle-gradient-text {
-  background: linear-gradient(90deg, rgba(255,255,255,1) 0%, rgba(200,200,200,1) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.gradient-border {
-  position: relative;
-}
-
-.gradient-border::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, #ff0000, #ff3333, #ff0000);
-  background-size: 200% 100%;
-  animation: gradient-shift 2s ease infinite;
-}
-
-@keyframes gradient-shift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-/* Estilizações de tipografia */
-.thin-text {
-  font-weight: 300;
-  letter-spacing: 0.02em;
-}
-
-.medium-text {
-  font-weight: 500;
-}
-
-.semibold-text {
-  font-weight: 600;
-}
-
-.bold-text {
-  font-weight: 700;
-}
-
-.caption {
-  font-size: 0.875rem;
-  color: var(--text-tertiary);
-  letter-spacing: 0.03em;
-}
-
-.uppercase-title {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  }
-
-/* Página transitions */
-.page-transition {
-  @apply transition-all duration-300 ease-in-out;
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-/* Tooltip estilizado */
-.tooltip {
-  position: relative;
-}
-
-.tooltip:hover::before {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: 125%;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
+.youtube-analytics-bar {
+  background-color: #e9ecef;
   border-radius: 4px;
-  font-size: 0.8rem;
-  font-family: var(--font-body);
-  white-space: nowrap;
-  z-index: 100;
-  opacity: 0;
-  animation: fadeIn 0.3s forwards;
+  height: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+  position: relative;
 }
 
-/* Estilos para o DatePicker */
-.react-datepicker {
-  @apply bg-[#2a2a2a] border border-gray-700 shadow-lg;
-}
-
-.react-datepicker__header {
-  @apply bg-[#1a1a1a] border-b border-gray-700;
-}
-
-.react-datepicker__current-month,
-.react-datepicker-time__header,
-.react-datepicker-year-header {
-  @apply text-white;
-}
-
-.react-datepicker__day-name {
-  @apply text-gray-400;
-}
-
-.react-datepicker__day {
-  @apply text-gray-200 hover:bg-red-600 hover:text-white;
-}
-
-.react-datepicker__day--selected,
-.react-datepicker__day--in-selecting-range,
-.react-datepicker__day--in-range {
-  @apply bg-red-600 text-white;
-}
-
-.react-datepicker__day--keyboard-selected {
-  @apply bg-red-700 text-white;
-}
-
-.react-datepicker__navigation-icon::before {
-  @apply border-gray-400;
-  }
-
-.react-datepicker__day--outside-month {
-  @apply text-gray-500;
-}
-
-/* DateRangePicker custom styles */
-input[type="date"] {
-  color-scheme: dark;
-}
-
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.8);
-  cursor: pointer;
-}
-
-.absolute {
-  z-index: 9999;
+.youtube-analytics-bar-fill {
+  background-color: #fa5252;
+  height: 100%;
+  left: 0;
+  position: absolute;
+  top: 0;
+  transition: width 0.3s ease;
 }

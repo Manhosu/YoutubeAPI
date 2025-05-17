@@ -1546,6 +1546,28 @@ class YoutubeService {
       return [];
     }
   }
+
+  async getVideoPlaylists(videoId: string, accountId?: string, providedToken?: string): Promise<YoutubePlaylist[]> {
+    try {
+      // Primeiro, obter todas as playlists do usuário
+      const { playlists } = await this.getMyPlaylists(undefined, accountId, providedToken);
+      
+      // Para cada playlist, verificar se contém o vídeo
+      const playlistsWithVideo = await Promise.all(
+        playlists.map(async (playlist) => {
+          const items = await this.getPlaylistItems(playlist.id, undefined, false, accountId, providedToken);
+          const hasVideo = items.some(item => item.videoId === videoId);
+          return hasVideo ? playlist : null;
+        })
+      );
+
+      // Filtrar playlists que contêm o vídeo
+      return playlistsWithVideo.filter((playlist): playlist is YoutubePlaylist => playlist !== null);
+    } catch (error) {
+      console.error('Erro ao obter playlists do vídeo:', error);
+      return [];
+    }
+  }
 }
 
 // Criar e exportar uma instância do serviço

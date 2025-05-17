@@ -18,6 +18,10 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5175,
+      force: true,
+      hmr: {
+        overlay: false
+      },
       strictPort: true,
       host: true,
       open: true,
@@ -31,7 +35,15 @@ export default defineConfig(({ mode }) => {
             'supabase': ['@supabase/supabase-js']
           }
         }
+      },
+      emptyOutDir: true,
+      watch: {
+        buildDelay: 0
       }
+    },
+    cacheDir: null,
+    optimizeDeps: {
+      force: true
     }
   }
 })
