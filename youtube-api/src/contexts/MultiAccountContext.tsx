@@ -206,21 +206,22 @@ export const MultiAccountProvider = ({ children }: { children: ReactNode }) => {
           
           // Armazenar associação de token -> userId no serviço YouTube
           try {
-            // Importar serviço diretamente para evitar dependência circular
-            const youtubeServiceModule = require('../services/youtubeService');
-            if (youtubeServiceModule && youtubeServiceModule.youtubeService) {
-              youtubeServiceModule.youtubeService.tokenToUserIdMap.set(
-                session.provider_token,
-                accountId
-              );
-              console.log('Token mapeado para ID de usuário no serviço YouTube');
-              
-              // Limpar cache específico da conta para forçar nova busca com token atualizado
-              if (youtubeServiceModule.youtubeService.clearCache) {
-                youtubeServiceModule.youtubeService.clearCache(accountId);
-                console.log(`Cache limpo para a conta ${accountId}`);
+            // Importar serviço diretamente para evitar dependência circular usando importação dinâmica
+            import('../services/youtubeService').then(youtubeServiceModule => {
+              if (youtubeServiceModule && youtubeServiceModule.youtubeService) {
+                youtubeServiceModule.youtubeService.tokenToUserIdMap.set(
+                  session.provider_token,
+                  accountId
+                );
+                console.log('Token mapeado para ID de usuário no serviço YouTube');
+                
+                // Limpar cache específico da conta para forçar nova busca com token atualizado
+                if (youtubeServiceModule.youtubeService.clearCache) {
+                  youtubeServiceModule.youtubeService.clearCache(accountId);
+                  console.log(`Cache limpo para a conta ${accountId}`);
+                }
               }
-            }
+            });
           } catch (error) {
             console.error('Erro ao mapear token para usuário:', error);
           }
@@ -294,73 +295,68 @@ export const MultiAccountProvider = ({ children }: { children: ReactNode }) => {
         }
       }
       
-      // Importar serviço diretamente para evitar dependência circular
-      const youtubeServiceModule = require('../services/youtubeService');
+      // Importar serviço diretamente para evitar dependência circular usando importação dinâmica
+      const youtubeServiceModule = await import('../services/youtubeService');
       if (youtubeServiceModule && youtubeServiceModule.youtubeService) {
-        try {
-          // Atualizar token no serviço YouTube
-          youtubeServiceModule.youtubeService.tokenToUserIdMap.set(
-            currentToken,
-            accountId
-          );
+        // Atualizar token no serviço YouTube
+        youtubeServiceModule.youtubeService.tokenToUserIdMap.set(
+          currentToken,
+          accountId
+        );
+        
+        // Buscar dados do canal para atualizar informações
+        const channels = await youtubeServiceModule.youtubeService.getMyChannels(
+          accountId,
+          currentToken
+        );
+        
+        if (channels && channels.length > 0) {
+          const primaryChannel = channels[0];
           
-          // Buscar dados do canal para atualizar informações
-          const channels = await youtubeServiceModule.youtubeService.getMyChannels(
-            accountId,
-            currentToken
-          );
+          // Atualizar dados do canal na conta
+          const updatedAccounts = [...accounts];
+          updatedAccounts[accountIndex] = { 
+            ...updatedAccounts[accountIndex],
+            channelId: primaryChannel.id,
+            channelTitle: primaryChannel.title,
+            channelThumbnail: primaryChannel.thumbnailUrl,
+            providerToken: currentToken // Atualizar token
+          };
           
-          if (channels && channels.length > 0) {
-            const primaryChannel = channels[0];
+          setAccounts(updatedAccounts);
+          
+          if (updatedAccounts[accountIndex].isActive) {
+            setActiveAccount(updatedAccounts[accountIndex]);
             
-            // Atualizar dados do canal na conta
-            const updatedAccounts = [...accounts];
-            updatedAccounts[accountIndex] = { 
-              ...updatedAccounts[accountIndex],
-              channelId: primaryChannel.id,
-              channelTitle: primaryChannel.title,
-              channelThumbnail: primaryChannel.thumbnailUrl,
-              providerToken: currentToken // Atualizar token
-            };
-            
-            setAccounts(updatedAccounts);
-            
-            if (updatedAccounts[accountIndex].isActive) {
-              setActiveAccount(updatedAccounts[accountIndex]);
-              
-              // Garantir que o token está atualizado no supabase para a conta ativa
-              try {
-                const session = await supabase.auth.getSession();
-                if (session?.data?.session && !session.data.session.provider_token) {
-                  console.log('Tentando recuperar token do provider...');
-                  // Token do provedor não está disponível na sessão,
-                  // podemos precisar fazer uma nova autenticação
-                }
-              } catch (sessionError) {
-                console.error('Erro ao verificar sessão:', sessionError);
-              }
-            }
-            
-            // Salvar no localStorage (sem o token)
-            saveAccountsToStorage(updatedAccounts);
-            
-            console.log(`Dados da conta ${accountId} atualizados com sucesso`);
-            
-            // Tentar buscar algumas playlists para verificar se o token funciona
+            // Garantir que o token está atualizado no supabase para a conta ativa
             try {
-              const playlistResult = await youtubeServiceModule.youtubeService.getMyPlaylists(
-                undefined,
-                accountId,
-                currentToken
-              );
-              console.log(`Playlists verificadas: ${playlistResult.playlists.length} playlists encontradas`);
-            } catch (playlistError) {
-              console.error('Erro ao verificar playlists:', playlistError);
+              const session = await supabase.auth.getSession();
+              if (session?.data?.session && !session.data.session.provider_token) {
+                console.log('Tentando recuperar token do provider...');
+                // Token do provedor não está disponível na sessão,
+                // podemos precisar fazer uma nova autenticação
+              }
+            } catch (sessionError) {
+              console.error('Erro ao verificar sessão:', sessionError);
             }
           }
-        } catch (error) {
-          console.error(`Erro ao buscar dados atualizados para conta ${accountId}:`, error);
-          throw error;
+          
+          // Salvar no localStorage (sem o token)
+          saveAccountsToStorage(updatedAccounts);
+          
+          console.log(`Dados da conta ${accountId} atualizados com sucesso`);
+          
+          // Tentar buscar algumas playlists para verificar se o token funciona
+          try {
+            const playlistResult = await youtubeServiceModule.youtubeService.getMyPlaylists(
+              undefined,
+              accountId,
+              currentToken
+            );
+            console.log(`Playlists verificadas: ${playlistResult.playlists.length} playlists encontradas`);
+          } catch (playlistError) {
+            console.error('Erro ao verificar playlists:', playlistError);
+          }
         }
       }
     } catch (error) {
@@ -383,18 +379,20 @@ export const MultiAccountProvider = ({ children }: { children: ReactNode }) => {
       
       // Tentar atualizar os tokens no serviço YouTube
       try {
-        const youtubeServiceModule = require('../services/youtubeService');
-        if (youtubeServiceModule && youtubeServiceModule.youtubeService) {
-          // Atualizar mapeamento de tokens para IDs de usuário
-          accountsToSave.forEach(account => {
-            if (account.providerToken) {
-              youtubeServiceModule.youtubeService.tokenToUserIdMap.set(
-                account.providerToken,
-                account.id
-              );
-            }
-          });
-        }
+        // Usar import dinâmico para carregar o módulo do YouTube
+        import('../services/youtubeService').then(youtubeServiceModule => {
+          if (youtubeServiceModule && youtubeServiceModule.youtubeService) {
+            // Atualizar mapeamento de tokens para IDs de usuário
+            accountsToSave.forEach(account => {
+              if (account.providerToken) {
+                youtubeServiceModule.youtubeService.tokenToUserIdMap.set(
+                  account.providerToken,
+                  account.id
+                );
+              }
+            });
+          }
+        });
       } catch (error) {
         console.error('Erro ao atualizar tokens no serviço YouTube:', error);
       }

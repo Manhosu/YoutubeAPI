@@ -19,6 +19,10 @@ import ConsolidatedReport from './pages/ConsolidatedReport';
 import AuthCallback from './pages/AuthCallback';
 import Fallback from './components/Fallback';
 import DataRefresher from './components/DataRefresher';
+import VideoDetail from './pages/VideoDetail';
+import NotFound from './pages/NotFound';
+import Preview from './pages/Preview';
+import VideoAnalytics from './pages/VideoAnalytics';
 
 // Componente para receber o callback OAuth e redirecionar para o dashboard
 const OAuth2Callback = () => {
@@ -31,10 +35,13 @@ const OAuth2Callback = () => {
   
   // Efeito para lidar com o redirecionamento após autenticação
   useEffect(() => {
+    console.log('OAuth2Callback effect - loading:', isLoading, 'user:', user ? 'exists' : 'null');
+    
     // Se não estiver carregando e o usuário estiver autenticado, redirecionar para o dashboard
     if (!isLoading && user) {
       console.log('Usuário autenticado, redirecionando para dashboard');
       navigate('/dashboard', { replace: true });
+      return;
     }
     
     // Se não estiver carregando e não houver usuário, mas houver hash na URL
@@ -44,17 +51,20 @@ const OAuth2Callback = () => {
       // Tentar processar a sessão manualmente após um pequeno atraso
       const processHash = async () => {
         try {
+          console.log('Iniciando processamento manual de hash...');
+          
           // Dar tempo para o Supabase processar o hash
           await new Promise(resolve => setTimeout(resolve, 1000));
           
           // Verificar novamente a sessão
           const { data } = await supabase.auth.getSession();
+          console.log('Sessão após processamento:', data.session ? 'encontrada' : 'não encontrada');
           
           if (data.session) {
-            console.log('Sessão obtida com sucesso!');
+            console.log('Sessão obtida com sucesso! Redirecionando para dashboard');
             navigate('/dashboard', { replace: true });
           } else {
-            console.log('Falha ao obter sessão');
+            console.log('Falha ao obter sessão após processamento, redirecionando para login');
             navigate('/login', { replace: true });
           }
         } catch (error) {
@@ -64,6 +74,10 @@ const OAuth2Callback = () => {
       };
       
       processHash();
+    } else if (!isLoading && !user) {
+      // Se não há usuário e não está carregando, redirecionar para login
+      console.log('Não há usuário ou token na URL, redirecionando para login');
+      navigate('/login', { replace: true });
     }
   }, [isLoading, user, navigate, location]);
   
@@ -178,27 +192,14 @@ function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/auth/callback" element={<OAuth2Callback />} />
-                <Route path="/dashboard" element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                } />
-                <Route path="/search" element={
-                  <ProtectedRoute>
-                    <Search />
-                  </ProtectedRoute>
-                } />
-                <Route path="/playlist/:id" element={
-                  <ProtectedRoute>
-                    <PlaylistDetails />
-                  </ProtectedRoute>
-                } />
-                <Route path="/consolidated-report" element={
-                  <ProtectedRoute>
-                    <ConsolidatedReport />
-                  </ProtectedRoute>
-                } />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/search" element={<ProtectedRoute><Search /></ProtectedRoute>} />
+                <Route path="/playlist/:id" element={<ProtectedRoute><PlaylistDetails /></ProtectedRoute>} />
+                <Route path="/video/:id" element={<ProtectedRoute><VideoDetail /></ProtectedRoute>} />
+                <Route path="/preview" element={<ProtectedRoute><Preview /></ProtectedRoute>} />
+                <Route path="/report" element={<ProtectedRoute><ConsolidatedReport /></ProtectedRoute>} />
+                <Route path="/video-analytics" element={<ProtectedRoute><VideoAnalytics /></ProtectedRoute>} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
               {/* Componente invisível para gerenciar atualizações automáticas de dados */}
               <DataRefresher />

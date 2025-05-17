@@ -25,6 +25,8 @@ interface PlaylistVideoItem {
 }
 import ExportModal from '../components/ExportModal';
 import { useMultiAccount } from '../contexts/MultiAccountContext';
+import { reportService } from '../services/reportService';
+import { videoTrackingService } from '../services/videoTrackingService';
 
 type SearchType = 'title' | 'id' | 'url';
 
@@ -192,13 +194,41 @@ const PlaylistDetails = () => {
                 
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => handleOpenExportModal('playlist')}
+                    onClick={() => reportService.exportSnapshotsToCSV(videos.map(video => ({
+                      videoId: video.videoId,
+                      title: video.title,
+                      date: video.lastUpdated || new Date().toISOString(),
+                      totalViews: video.viewCount || 0,
+                      likes: video.likeCount || 0,
+                      position: video.position,
+                      playlistId: video.playlistId,
+                      channelTitle: video.channelTitle || ''
+                    })), `playlist-${playlist.title}.csv`)}
                     className="flex items-center gap-2 text-sm text-white bg-[#2a2a2a] hover:bg-[#333] px-3 py-1.5 rounded-md transition-colors"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-green-500">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                     </svg>
-                    Exportar playlist
+                    Exportar CSV
+                  </button>
+                  
+                  <button
+                    onClick={() => reportService.exportSnapshotsToJSON(videos.map(video => ({
+                      videoId: video.videoId,
+                      title: video.title,
+                      date: video.lastUpdated || new Date().toISOString(),
+                      totalViews: video.viewCount || 0,
+                      likes: video.likeCount || 0,
+                      position: video.position,
+                      playlistId: video.playlistId,
+                      channelTitle: video.channelTitle || ''
+                    })), `playlist-${playlist.title}.json`)}
+                    className="flex items-center gap-2 text-sm text-white bg-[#2a2a2a] hover:bg-[#333] px-3 py-1.5 rounded-md transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-blue-500">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Exportar JSON
                   </button>
                   
                   <button

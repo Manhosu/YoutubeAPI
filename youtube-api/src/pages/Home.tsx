@@ -1,9 +1,20 @@
 import Layout from '../components/Layout';
 import { useEffect, useState, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate, Link } from 'react-router-dom';
 
 const Home = () => {
   const [isVisible, setIsVisible] = useState(false);
   const featuresRef = useRef<HTMLDivElement>(null);
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
+  
+  // Redirecionar usuários logados para o dashboard
+  useEffect(() => {
+    if (user && !isLoading) {
+      navigate('/dashboard');
+    }
+  }, [user, isLoading, navigate]);
   
   // Animação na entrada da página
   useEffect(() => {
@@ -64,9 +75,27 @@ const Home = () => {
             <p className="text-xl text-gray-300 mb-4 max-w-2xl mx-auto thin-text">
               Analise suas playlists e descubra onde seus vídeos aparecem.
             </p>
-            <p className="text-lg text-gray-400 max-w-2xl mx-auto caption">
+            <p className="text-lg text-gray-400 max-w-2xl mx-auto caption mb-8">
               Obtenha estatísticas valiosas sobre vídeos, playlists e desempenho do seu canal.
             </p>
+            
+            {!user && !isLoading && (
+              <Link 
+                to="/login" 
+                className="bg-red-600 text-white px-8 py-3 rounded-md hover:bg-red-700 transition-colors inline-flex items-center text-lg"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                </svg>
+                Entrar Agora
+              </Link>
+            )}
+            
+            {isLoading && (
+              <div className="flex justify-center">
+                <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            )}
           </div>
         </div>
         

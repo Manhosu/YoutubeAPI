@@ -1,21 +1,22 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import CacheManager from './CacheManager';
 import AccountManager from './AccountManager';
+import { useMultiAccount } from '../contexts/MultiAccountContext';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
-const Layout = ({ children }: LayoutProps) => {
+const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  let user = null;
-  let signOut = () => {};
+  const { user, signOut: logout } = useAuth();
+  const { activeAccount, accounts, switchAccount: setActiveAccount } = useMultiAccount();
+  const [showAccountsDropdown, setShowAccountsDropdown] = useState(false);
   
   // Detecção de scroll para efeitos no header
   useEffect(() => {
@@ -27,14 +28,28 @@ const Layout = ({ children }: LayoutProps) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
   
-  // Tente obter os valores do AuthContext, mas não falhe se houver erro
-  try {
-    const auth = useAuth();
-    user = auth.user;
-    signOut = auth.signOut;
-  } catch (error) {
-    console.error("Erro ao acessar AuthContext:", error);
-  }
+  // Fechar menu ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mobileMenuOpen && !(event.target as Element).closest('#mobile-menu')) {
+        setMobileMenuOpen(false);
+      }
+      
+      if (showAccountsDropdown && !(event.target as Element).closest('#accounts-dropdown')) {
+        setShowAccountsDropdown(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [mobileMenuOpen, showAccountsDropdown]);
+  
+  // Fechar menu ao mudar de rota
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location]);
   
   const isActive = (path: string) => location.pathname === path;
   
@@ -85,8 +100,22 @@ const Layout = ({ children }: LayoutProps) => {
                     Relatório
                   </span>
                 </Link>
+                <Link 
+                  to="/video-analytics" 
+                  className={`font-medium relative overflow-hidden group ${isActive('/video-analytics') ? 'text-blue-400' : 'text-[var(--text-secondary)] hover:text-white'}`}
+                >
+                  <span className="transition-colors duration-300 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1.5" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5v1.5" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M4.5 8.25h15M3.75 12h16.5M3.75 15.75h16.5M12 19.5v-5.25" />
+                    </svg>
+                    Análise de Vídeo
+                  </span>
+                </Link>
                 <button 
-                  onClick={signOut}
+                  onClick={logout}
                   className="btn-primary text-sm"
                 >
                   Sair
@@ -174,7 +203,7 @@ const Layout = ({ children }: LayoutProps) => {
                     </div>
                     <button 
                       onClick={() => {
-                        signOut();
+                        logout();
                         setMobileMenuOpen(false);
                       }}
                       className="text-sm bg-red-600 text-white px-3 py-1 rounded-md"

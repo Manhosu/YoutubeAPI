@@ -51,7 +51,7 @@ class VideoTrackingService {
     }
   }
 
-  // Configurar snapshots automáticos diários às 3h da manhã
+  // Configurar snapshots automáticos diários às 22h
   private setupAutomaticSnapshots(): void {
     // Limpar qualquer agendamento existente
     if (this.scheduledSnapshotJob !== null) {
@@ -60,10 +60,10 @@ class VideoTrackingService {
     
     const now = new Date();
     const targetTime = new Date();
-    targetTime.setHours(3, 0, 0, 0); // 3:00 AM
+    targetTime.setHours(22, 0, 0, 0); // 22:00 (10:00 PM)
     
-    // Se já passou das 3h hoje, agendar para amanhã às 3h
-    if (now.getHours() >= 3) {
+    // Se já passou das 22h hoje, agendar para amanhã às 22h
+    if (now.getHours() >= 22) {
       targetTime.setDate(targetTime.getDate() + 1);
     }
     
@@ -193,8 +193,30 @@ class VideoTrackingService {
     }
   }
 
+  // Obter todos os snapshots de um vídeo
   getVideoSnapshots(videoId: string): VideoSnapshot[] {
-    return this.snapshots[videoId] || [];
+    if (!this.snapshots[videoId]) {
+      return [];
+    }
+    
+    return [...this.snapshots[videoId]].sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  }
+  
+  // Obter snapshots de um vídeo em um período específico
+  getVideoSnapshotsInPeriod(
+    videoId: string, 
+    startDate: Date, 
+    endDate: Date
+  ): VideoSnapshot[] {
+    const allSnapshots = this.getVideoSnapshots(videoId);
+    
+    // Filtrar por período
+    return allSnapshots.filter(snapshot => {
+      const snapshotDate = new Date(snapshot.date);
+      return snapshotDate >= startDate && snapshotDate <= endDate;
+    });
   }
 
   calculatePlaylistImpact(videoId: string): PlaylistImpactData[] {
@@ -279,7 +301,7 @@ class VideoTrackingService {
   }
 
   // Adicionar função para exportar dados de impacto
-  public exportImpactData(videoId: string, format: 'csv' | 'json' = 'json'): void {
+  public async exportImpactData(videoId: string, format: 'csv' | 'json' = 'json'): Promise<void> {
     try {
       // Verificar se temos snapshots suficientes
       const snapshots = this.getVideoSnapshots(videoId);
@@ -296,6 +318,9 @@ class VideoTrackingService {
         new Date(b.date).getTime() - new Date(a.date).getTime()
       )[0];
       
+      // Obter estimativas de visualizações por playlist
+      const playlistViewsEstimates = await this.estimatePlaylistViews(videoId);
+      
       // Criar objeto de dados para exportação
       const exportData = {
         videoId,
@@ -306,7 +331,8 @@ class VideoTrackingService {
           endDate: latestSnapshot.date,
           totalDays: snapshots.length
         },
-        impactData
+        impactData,
+        playlistViewsEstimates
       };
 
       if (format === 'json') {
@@ -334,6 +360,13 @@ class VideoTrackingService {
         csvContent += 'Playlist,Visualizações Contribuídas,Percentual de Contribuição,Dias na Playlist\n';
         impactData.forEach(impact => {
           csvContent += `${this.escapeCsvValue(impact.playlistTitle)},${Math.round(impact.viewsContribution)},${impact.contributionPercentage.toFixed(2)}%,${impact.daysInPlaylist}\n`;
+        });
+
+        // Adicionar estimativas de visualizações por playlist
+        csvContent += '\nEstimativas de Visualizações por Playlist\n';
+        csvContent += 'Playlist,Posição na Playlist,Visualizações Estimadas,Percentual do Total,Número de Vídeos\n';
+        playlistViewsEstimates.forEach(playlist => {
+          csvContent += `${this.escapeCsvValue(playlist.playlistTitle)},${playlist.position},${playlist.estimatedViews},${playlist.percentage}%,${playlist.itemCount}\n`;
         });
 
         // Adicionar histórico de snapshots
@@ -375,6 +408,157 @@ class VideoTrackingService {
       return `"${value.replace(/"/g, '""')}"`;
     }
     return value;
+  }
+
+  // Estima as visualizações recebidas por cada playlist para um vídeo
+  async estimatePlaylistViews(videoId: string, accountId?: string): Promise<any[]> {
+    try {
+      // Obter o vídeo com suas playlists
+      const video = await youtubeService.getVideoById(videoId, accountId);
+      if (!video || !video.playlists || video.playlists.length === 0) return [];
+      
+      // Obter snapshots para análise de tendência
+      const snapshots = this.getVideoSnapshots(videoId);
+      const hasSnapshots = snapshots.length > 1;
+      
+      // Verificar se podemos usar dados analíticos reais do localStorage (se disponíveis)
+      const analyticsDataKey = `youtube_analytics_data_${videoId}`;
+      let analyticsData = null;
+      try {
+        const storedData = localStorage.getItem(analyticsDataKey);
+        if (storedData) {
+          analyticsData = JSON.parse(storedData);
+        } else {
+          // Se não tiver dados salvos, criar dados iniciais vazios
+          analyticsData = {
+            lastUpdated: new Date().toISOString(),
+            playlists: {}
+          };
+          
+          // Não inicializar com nenhum valor fixo - começa com 0 visualizações
+          // Serão incrementadas apenas quando o usuário realmente registrar visualizações
+          
+          // Salvar os dados iniciais
+          localStorage.setItem(analyticsDataKey, JSON.stringify(analyticsData));
+        }
+      } catch (e) {
+        console.error("Erro ao ler dados analíticos do localStorage:", e);
+      }
+      
+      // Obter estatísticas detalhadas de cada playlist
+      const playlistStats = await Promise.all(
+        video.playlists.map(async (playlist) => {
+          try {
+            // Buscar todas as informações detalhadas da playlist
+            const playlistDetails = await youtubeService.getPlaylistItems(playlist.id, undefined, true, accountId);
+            
+            // Verificar se temos dados do Analytics para esta playlist
+            let viewCount = 0; // Valor padrão é zero - sem visualizações iniciais
+            
+            // Se temos dados analíticos armazenados, use-os
+            if (analyticsData && analyticsData.playlists && analyticsData.playlists[playlist.id]) {
+              viewCount = analyticsData.playlists[playlist.id].viewCount;
+            }
+            
+            // Calcular posição do vídeo na playlist
+            const videoItem = playlistDetails.find(item => item.videoId === videoId);
+            const videoPosition = videoItem ? videoItem.position : 
+              playlistDetails.findIndex(item => item.videoId === videoId);
+            
+            // Calcular a porcentagem para a barra de progresso
+            const percentage = video.viewCount > 0 ? (viewCount / video.viewCount) * 100 : 0.0;
+            
+            return {
+              playlistId: playlist.id,
+              playlistTitle: playlist.title,
+              thumbnailUrl: playlist.thumbnailUrl,
+              itemCount: playlist.itemCount || playlistDetails.length,
+              estimatedViews: viewCount, // Valor real, não estimado
+              percentage: percentage, // Não arredondar, será formatado na interface
+              position: videoPosition >= 0 ? videoPosition + 1 : 'Desconhecida'
+            };
+          } catch (error) {
+            console.error(`Erro ao processar playlist ${playlist.id}:`, error);
+            return {
+              playlistId: playlist.id,
+              playlistTitle: playlist.title,
+              thumbnailUrl: playlist.thumbnailUrl,
+              itemCount: playlist.itemCount || 0,
+              estimatedViews: 0, // Iniciar com 0 - sem valor fixo
+              percentage: 0.0,
+              position: 'Erro',
+              error: 'Falha ao processar esta playlist'
+            };
+          }
+        })
+      );
+      
+      // Ordenar por maior contribuição primeiro
+      return playlistStats.sort((a, b) => b.estimatedViews - a.estimatedViews);
+    } catch (error) {
+      console.error('Erro ao estimar visualizações por playlist:', error);
+      return [];
+    }
+  }
+  
+  // Método para registrar uma visualização vinda de playlist
+  registerPlaylistView(videoId: string, playlistId: string): void {
+    try {
+      const analyticsDataKey = `youtube_analytics_data_${videoId}`;
+      let analyticsData = null;
+      try {
+        const storedData = localStorage.getItem(analyticsDataKey);
+        if (storedData) {
+          analyticsData = JSON.parse(storedData);
+        }
+      } catch (e) {
+        console.error("Erro ao ler dados analíticos do localStorage:", e);
+      }
+      
+      // Inicializar dados se não existirem
+      if (!analyticsData) {
+        analyticsData = {
+          lastUpdated: new Date().toISOString(),
+          playlists: {}
+        };
+      }
+      
+      // Inicializar dados da playlist se não existirem
+      if (!analyticsData.playlists[playlistId]) {
+        analyticsData.playlists[playlistId] = {
+          viewCount: 0 // Iniciar com 0 - sem valor fixo
+        };
+      }
+      
+      // Incrementar contagem de visualizações
+      analyticsData.playlists[playlistId].viewCount++;
+      
+      // Atualizar timestamp
+      analyticsData.lastUpdated = new Date().toISOString();
+      
+      // Salvar no localStorage
+      localStorage.setItem(analyticsDataKey, JSON.stringify(analyticsData));
+    } catch (e) {
+      console.error("Erro ao registrar visualização de playlist:", e);
+    }
+  }
+
+  // Força a atualização dos dados no localStorage para garantir que as alterações sejam exibidas
+  forceUpdateData(videoId: string): void {
+    try {
+      // Este método é uma garantia adicional para garantir que dados sejam atualizados
+      const analyticsDataKey = `youtube_analytics_data_${videoId}`;
+      const storedData = localStorage.getItem(analyticsDataKey);
+      
+      if (storedData) {
+        // Se existirem dados armazenados, recarrega-os para garantir atualização
+        const analyticsData = JSON.parse(storedData);
+        // Salvar os dados novamente para garantir que sejam atualizados
+        localStorage.setItem(analyticsDataKey, JSON.stringify(analyticsData));
+      }
+    } catch (e) {
+      console.error("Erro ao atualizar dados do localStorage:", e);
+    }
   }
 }
 

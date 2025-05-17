@@ -17,6 +17,7 @@ export interface YoutubePlaylist {
   channelId: string;
   channelTitle?: string;
   totalViews?: number; // Total de visualizações da playlist
+  lastUpdated?: string; // Data da última atualização da playlist
 }
 
 export interface PlaylistViewStats {
@@ -280,7 +281,8 @@ class YoutubeService {
         thumbnailUrl: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
         itemCount: item.contentDetails.itemCount,
         channelId: item.snippet.channelId,
-        channelTitle: item.snippet.channelTitle
+        channelTitle: item.snippet.channelTitle,
+        lastUpdated: new Date().toISOString() // Adicionando data de atualização
       }));
       
       // Se for página subsequente, buscar as playlists anteriores para acumular
@@ -485,7 +487,8 @@ class YoutubeService {
           playlistData.snippet.thumbnails?.default?.url,
         itemCount: playlistData.contentDetails.itemCount,
         channelId: playlistData.snippet.channelId,
-        channelTitle: playlistData.snippet.channelTitle
+        channelTitle: playlistData.snippet.channelTitle,
+        lastUpdated: new Date().toISOString() // Adicionando data de atualização
       };
       
       console.log(`Playlist ${playlistId} encontrada:`, playlist.title);

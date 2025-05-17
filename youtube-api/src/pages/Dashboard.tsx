@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { youtubeService, type YoutubeChannel, type YoutubePlaylist, type PlaylistVideoItem } from '../services/youtubeService';
@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useMultiAccount } from '../contexts/MultiAccountContext';
 import VideoPlaylistImpact from '../components/VideoPlaylistImpact';
 import { videoTrackingService } from '../services/videoTrackingService';
+import { exportService } from '../services/exportService';
 
 // Interface para os resultados de pesquisa em todas as playlists
 interface PlaylistWithFoundVideos {
@@ -13,8 +14,141 @@ interface PlaylistWithFoundVideos {
   foundVideos: PlaylistVideoItem[];
 }
 
+// Interface para o modal de exportação
+interface ExportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onExport: (format: 'csv' | 'json', startDate: string, endDate: string) => void;
+}
+
 // Tipo para os tipos de pesquisa
 type SearchType = 'title' | 'id' | 'url';
+
+// Componente Modal de Exportação
+const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, onExport }) => {
+  const [format, setFormat] = useState<'csv' | 'json'>('csv');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Definir datas padrão: últimos 30 dias
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+    
+    setEndDate(end.toISOString().split('T')[0]);
+    setStartDate(start.toISOString().split('T')[0]);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div
+        ref={modalRef}
+        className="bg-gray-900 rounded-lg shadow-xl max-w-md w-full overflow-hidden"
+      >
+        <div className="border-b border-gray-800 px-5 py-4">
+          <h3 className="text-xl font-semibold text-white">Exportar Relatório</h3>
+        </div>
+        
+        <div className="p-5">
+          <div className="mb-4">
+            <label className="block text-gray-300 mb-2">Formato</label>
+            <div className="flex space-x-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  className="form-radio text-red-600"
+                  name="format"
+                  value="csv"
+                  checked={format === 'csv'}
+                  onChange={() => setFormat('csv')}
+                />
+                <span className="ml-2 text-white">CSV</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  className="form-radio text-red-600"
+                  name="format"
+                  value="json"
+                  checked={format === 'json'}
+                  onChange={() => setFormat('json')}
+                />
+                <span className="ml-2 text-white">JSON</span>
+              </label>
+            </div>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-gray-300 mb-2">Período</label>
+            <div className="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4">
+              <div className="flex-1">
+                <label className="text-sm text-gray-400 block mb-1">Data inicial</label>
+                <input
+                  type="date"
+                  className="bg-gray-800 text-white px-3 py-2 rounded w-full"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-sm text-gray-400 block mb-1">Data final</label>
+                <input
+                  type="date"
+                  className="bg-gray-800 text-white px-3 py-2 rounded w-full"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              O relatório incluirá as estatísticas de visualização das playlists no período selecionado.
+            </p>
+          </div>
+          
+          <div className="flex justify-end space-x-4 mt-6">
+            <button
+              className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+              onClick={onClose}
+            >
+              Cancelar
+            </button>
+            <button
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center"
+              onClick={() => onExport(format, startDate, endDate)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Exportar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -35,6 +169,11 @@ const Dashboard = () => {
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotScheduled, setSnapshotScheduled] = useState(false);
   const [lastSnapshotTime, setLastSnapshotTime] = useState<string | null>(null);
+  const [sortType, setSortType] = useState<string>('views'); // Ordenação padrão por visualizações
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [refreshingPlaylists, setRefreshingPlaylists] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -251,6 +390,19 @@ const Dashboard = () => {
       });
       
       setPlaylistStats(statsMap);
+      
+      // Atualizar as playlists com as visualizações
+      const playlistsWithStats = playlistsToLoad.map(playlist => ({
+        ...playlist,
+        totalViews: statsMap[playlist.id] || playlist.totalViews || 0
+      }));
+      
+      // Ordenar as playlists por visualizações inicialmente
+      const sortedPlaylists = [...playlistsWithStats].sort((a, b) => (b.totalViews || 0) - (a.totalViews || 0));
+      
+      // Atualizar as playlists
+      setPlaylists(playlistsWithStats);
+      setFilteredPlaylists(sortedPlaylists);
     } catch (error) {
       console.error('Erro ao carregar estatísticas das playlists:', error);
     } finally {
@@ -361,9 +513,145 @@ const Dashboard = () => {
     checkNextSnapshot();
   }, []);
 
+  // Função para exportar dados com datas
+  const handleExport = async (format: 'csv' | 'json', startDate: string, endDate: string) => {
+    try {
+      setExporting(true);
+      
+      // Obter IDs de todas as contas ou apenas a conta ativa
+      const accountIds = activeAccount ? [activeAccount.id] : [];
+      
+      // Definir o período para o relatório
+      const dateRange = {
+        startDate: new Date(startDate).toISOString(),
+        endDate: new Date(endDate).toISOString()
+      };
+      
+      // Gerar relatório através do serviço
+      const result = await youtubeService.exportConsolidatedReport(
+        accountIds,
+        format,
+        true, // Indicar que é um relatório de crescimento
+        dateRange
+      );
+      
+      // Processar o resultado com base no formato
+      if (format === 'csv') {
+        // Para CSV, criar um blob e fazer o download
+        const blob = new Blob([result as string], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `playlist-report-${startDate}-to-${endDate}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        // Para JSON, formatar e fazer download
+        const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `playlist-report-${startDate}-to-${endDate}.json`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      
+      // Mostrar toast de sucesso
+      setToast({
+        message: `Relatório exportado com sucesso (${format.toUpperCase()})`,
+        type: 'success'
+      });
+      
+      // Limpar toast após 4 segundos
+      setTimeout(() => setToast(null), 4000);
+      
+      // Fechar modal após exportação bem-sucedida
+      setExportModalOpen(false);
+    } catch (error) {
+      console.error('Erro ao exportar relatório:', error);
+      setError('Ocorreu um erro ao exportar o relatório. Tente novamente.');
+      
+      // Mostrar toast de erro
+      setToast({
+        message: 'Erro ao exportar relatório. Tente novamente.',
+        type: 'error'
+      });
+      
+      // Limpar toast após 4 segundos
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Função para atualizar playlists e ordená-las por visualizações e atividade recente
+  const refreshPlaylists = async () => {
+    if (refreshingPlaylists) return;
+    
+    setRefreshingPlaylists(true);
+    setError(null);
+    
+    try {
+      // Limpar cache de playlists para forçar atualização dos dados
+      youtubeService.clearCache(activeAccount?.id);
+      
+      // Buscar playlists atualizadas
+      const accountId = activeAccount?.id;
+      const { playlists: updatedPlaylists } = await youtubeService.getMyPlaylists(undefined, accountId);
+      
+      // Buscar estatísticas atualizadas para as playlists
+      await loadPlaylistStats(updatedPlaylists);
+      
+      // Mostrar notificação de sucesso
+      setToast({
+        message: 'Playlists atualizadas com sucesso!',
+        type: 'success'
+      });
+      
+      // Limpar toast após 4 segundos
+      setTimeout(() => setToast(null), 4000);
+    } catch (error) {
+      console.error('Erro ao atualizar playlists:', error);
+      setError('Ocorreu um erro ao atualizar as playlists. Tente novamente.');
+      
+      // Mostrar toast de erro
+      setToast({
+        message: 'Erro ao atualizar playlists. Tente novamente.',
+        type: 'error'
+      });
+      
+      // Limpar toast após 4 segundos
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setRefreshingPlaylists(false);
+    }
+  };
+
   return (
     <Layout>
       <div className="page-transition">
+        {/* Toast notification */}
+        {toast && (
+          <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-md shadow-lg transition-all transform animate-fade-in ${
+            toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          }`}>
+            <div className="flex items-center">
+              {toast.type === 'success' ? (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-white mr-2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-white mr-2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              )}
+              <p className="text-white font-medium">{toast.message}</p>
+            </div>
+          </div>
+        )}
+        
         <h1 className="text-3xl font-bold mb-8 gradient-text">Meu Dashboard</h1>
         
         {loading && playlists.length === 0 && channels.length === 0 && (
@@ -414,26 +702,38 @@ const Dashboard = () => {
               )}
             </div>
             
-            <button
-              onClick={takeSnapshotForAllVideos}
-              disabled={snapshotsLoading}
-              className="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {snapshotsLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Processando...
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
-                  </svg>
-                  Snapshot Agora (Todos os Canais)
-                </>
-              )}
-            </button>
+            <div className="flex flex-col md:flex-row gap-2">
+              <button
+                onClick={takeSnapshotForAllVideos}
+                disabled={snapshotsLoading}
+                className="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {snapshotsLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                    </svg>
+                    Snapshot Agora
+                  </>
+                )}
+              </button>
+              
+              <Link
+                to="/video-analytics"
+                className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
+                </svg>
+                Análise por Vídeo
+              </Link>
+            </div>
           </div>
           
           <div className="bg-gray-700/50 p-3 rounded text-sm text-gray-300">
@@ -724,6 +1024,90 @@ const Dashboard = () => {
         <section>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
             <h2 className="text-2xl font-semibold subtle-gradient-text mb-4 md:mb-0">Minhas Playlists</h2>
+            
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <select
+                  className="bg-[#1f1f1f] text-white px-4 py-2 rounded-md cursor-pointer appearance-none pr-10 focus:outline-none focus:ring-1 focus:ring-red-500"
+                  value={sortType}
+                  onChange={(e) => {
+                    const newSortType = e.target.value;
+                    setSortType(newSortType);
+                    
+                    let sorted = [...filteredPlaylists];
+                    
+                    if (newSortType === 'views') {
+                      // Ordenar por visualizações (maior para menor)
+                      sorted = sorted.sort((a, b) => (b.totalViews || 0) - (a.totalViews || 0));
+                    } else if (newSortType === 'activity') {
+                      // Ordenar por movimento/atividade (estimativa baseada em views e data de atualização)
+                      const now = Date.now();
+                      sorted = sorted.sort((a, b) => {
+                        // Calcular um score baseado em visualizações e quando foi atualizado por último
+                        const aLastUpdated = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+                        const bLastUpdated = b.lastUpdated ? new Date(b.lastUpdated).getTime() : 0;
+                        
+                        // Favorecer playlists atualizadas recentemente
+                        const aRecency = aLastUpdated ? Math.min(14, Math.floor((now - aLastUpdated) / (24 * 60 * 60 * 1000))) : 14;
+                        const bRecency = bLastUpdated ? Math.min(14, Math.floor((now - bLastUpdated) / (24 * 60 * 60 * 1000))) : 14;
+                        
+                        // Score combinado (visualizações + recência)
+                        const aScore = (a.totalViews || 0) * (1 - (aRecency / 14));
+                        const bScore = (b.totalViews || 0) * (1 - (bRecency / 14));
+                        
+                        return bScore - aScore;
+                      });
+                    } else if (newSortType === 'size') {
+                      // Ordenar por número de vídeos (maior para menor)
+                      sorted = sorted.sort((a, b) => b.itemCount - a.itemCount);
+                    } else {
+                      // Ordenação alfabética (padrão)
+                      sorted = sorted.sort((a, b) => a.title.localeCompare(b.title));
+                    }
+                    
+                    setFilteredPlaylists(sorted);
+                  }}
+                >
+                  <option value="default">Ordenar por nome</option>
+                  <option value="views">Mais visualizações</option>
+                  <option value="activity">Mais movimento</option>
+                  <option value="size">Mais vídeos</option>
+                </select>
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-400">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </div>
+              </div>
+              
+              {loadingStats && (
+                <div className="flex items-center text-gray-400 text-sm">
+                  <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span>Calculando estatísticas...</span>
+                </div>
+              )}
+              
+              {/* Botão de exportação */}
+              <button 
+                onClick={() => setExportModalOpen(true)}
+                disabled={exporting || playlists.length === 0}
+                className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center"
+              >
+                {exporting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <span>Exportando...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    <span>Exportar Relatório</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
           
           {!loading && filteredPlaylists.length === 0 && searchMode === 'playlist' && (
@@ -748,12 +1132,30 @@ const Dashboard = () => {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
                     <div className="absolute bottom-3 left-3 right-3">
-                      <p className="text-xs text-gray-400">{playlist.itemCount} vídeos</p>
+                      <div className="flex justify-between items-center">
+                        <p className="text-xs text-gray-400">{playlist.itemCount} vídeos</p>
+                        {playlist.totalViews !== undefined && playlist.totalViews > 0 && (
+                          <p className="text-xs bg-red-600/80 px-2 py-0.5 rounded text-white">
+                            {new Intl.NumberFormat('pt-BR').format(playlist.totalViews)} views
+                          </p>
+                        )}
+                      </div>
                       <h3 className="text-white font-medium truncate">{playlist.title}</h3>
                     </div>
                   </div>
                   <div className="p-4">
                     <p className="text-gray-400 text-sm line-clamp-2 mb-3">{playlist.description || 'Sem descrição'}</p>
+                    
+                    {/* Mostrar info de atividade recente se disponível */}
+                    {playlist.lastUpdated && (
+                      <div className="flex items-center mb-3 text-xs text-gray-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Atualizado em {new Date(playlist.lastUpdated).toLocaleDateString('pt-BR')}
+                      </div>
+                    )}
+                    
                     <Link
                       to={`/playlist/${playlist.id}`}
                       className="text-red-500 hover:text-red-400 text-sm font-medium transition-colors flex items-center"
@@ -793,6 +1195,104 @@ const Dashboard = () => {
             </div>
           )}
         </section>
+        
+        {/* Modal de exportação */}
+        <ExportModal 
+          isOpen={exportModalOpen} 
+          onClose={() => setExportModalOpen(false)} 
+          onExport={handleExport} 
+        />
+
+        {/* Estatísticas e ações rápidas */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="card p-4 flex flex-col">
+            <h3 className="text-white font-medium mb-2">Atualizar playlists</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Reordena as playlists mantendo as mais populares e ativas no topo.
+            </p>
+            <button
+              onClick={refreshPlaylists}
+              disabled={refreshingPlaylists}
+              className="w-full h-12 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white py-3 px-6 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed z-10"
+            >
+              {refreshingPlaylists ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="font-medium">Atualizando...</span>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  <span className="font-medium">Atualizar playlists</span>
+                </>
+              )}
+            </button>
+          </div>
+          
+          <div className="card p-4 flex flex-col">
+            <h3 className="text-white font-medium mb-2">Snapshots de dados</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Capture dados atuais de todos os vídeos para análise futura.
+            </p>
+            <button
+              onClick={takeSnapshotForAllVideos}
+              disabled={snapshotsLoading}
+              className="w-full h-12 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed z-10"
+            >
+              {snapshotsLoading ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="font-medium">Processando...</span>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                  </svg>
+                  <span className="font-medium">Capturar Snapshot</span>
+                </>
+              )}
+            </button>
+          </div>
+          
+          <div className="card p-4 flex flex-col">
+            <h3 className="text-white font-medium mb-2">Exportar relatório</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Exporte seus dados para análise em outras ferramentas.
+            </p>
+            <button
+              onClick={() => setExportModalOpen(true)}
+              disabled={exporting || playlists.length === 0}
+              className="w-full h-12 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed z-10"
+            >
+              {exporting ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="font-medium">Exportando...</span>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  <span className="font-medium">Exportar Dados</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </Layout>
   );

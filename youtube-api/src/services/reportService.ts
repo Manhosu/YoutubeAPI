@@ -17,6 +17,18 @@ interface PlaylistVideoItem {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+// Interface para representar um snapshot
+interface Snapshot {
+  id?: string;
+  date: string;
+  totalViews: number;
+  playlistId?: string;
+  videoId?: string;
+  playlists?: number;
+  likes?: number;
+  [key: string]: any;
+}
+
 interface DailyStats {
   data: string;
   maxVisualizacoes: number;
@@ -288,42 +300,75 @@ export class ReportService {
    * Converte o relatório para CSV
    */
   convertReportToCSV(report: GrowthReport): string {
-    // Cabeçalho CSV
-    let csv = 'Relatório de Crescimento\n';
-    csv += `Período: ${report.dataInicio} a ${report.dataFim}\n\n`;
-    csv += `Visualizações Totais: ${report.visualizacoesIniciais} → ${report.visualizacoesFinais} (${report.percentualCrescimentoVisualizacoes}% de crescimento)\n`;
-    csv += `Likes Totais: ${report.likesIniciais} → ${report.likesFinais} (${report.percentualCrescimentoLikes}% de crescimento)\n\n`;
+    // Cabeçalho CSV com formatação melhorada
+    let csv = "RELATÓRIO DE CRESCIMENTO DO YOUTUBE\n";
+    csv += `Exportado em: ${format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}\n\n`;
+    
+    // Seção de informações gerais
+    csv += "=== INFORMAÇÕES GERAIS ===\n";
+    csv += `Período analisado: ${report.dataInicio} a ${report.dataFim}\n\n`;
+    
+    // Seção de estatísticas de crescimento
+    csv += "=== ESTATÍSTICAS DE CRESCIMENTO ===\n";
+    csv += `Visualizações: ${report.visualizacoesIniciais.toLocaleString('pt-BR')} → ${report.visualizacoesFinais.toLocaleString('pt-BR')}\n`;
+    csv += `Crescimento de visualizações: ${(report.visualizacoesFinais - report.visualizacoesIniciais).toLocaleString('pt-BR')} (${report.percentualCrescimentoVisualizacoes.toFixed(2)}%)\n`;
+    csv += `Likes: ${report.likesIniciais.toLocaleString('pt-BR')} → ${report.likesFinais.toLocaleString('pt-BR')}\n`;
+    csv += `Crescimento de likes: ${(report.likesFinais - report.likesIniciais).toLocaleString('pt-BR')} (${report.percentualCrescimentoLikes.toFixed(2)}%)\n\n`;
+    
+    // Seção de vídeos em destaque
+    csv += "=== VÍDEOS EM DESTAQUE ===\n";
     
     // Vídeo com maior crescimento de visualizações
     if (report.videoComMaiorCrescimentoVisualizacoes) {
-      csv += `Vídeo com maior crescimento de visualizações: "${report.videoComMaiorCrescimentoVisualizacoes.titulo}"\n`;
-      csv += `- Crescimento: ${report.videoComMaiorCrescimentoVisualizacoes.crescimentoVisualizacoes} visualizações (${report.videoComMaiorCrescimentoVisualizacoes.percentualCrescimentoVisualizacoes}%)\n\n`;
+      const videoViews = report.videoComMaiorCrescimentoVisualizacoes;
+      csv += "Vídeo com maior crescimento de visualizações:\n";
+      csv += `- Título: "${this.escapeCsvValue(videoViews.titulo)}"\n`;
+      csv += `- ID: ${videoViews.videoId}\n`;
+      csv += `- Visualizações: ${videoViews.visualizacoesIniciais.toLocaleString('pt-BR')} → ${videoViews.visualizacoesFinais.toLocaleString('pt-BR')}\n`;
+      csv += `- Crescimento: ${videoViews.crescimentoVisualizacoes.toLocaleString('pt-BR')} visualizações (${videoViews.percentualCrescimentoVisualizacoes.toFixed(2)}%)\n\n`;
     }
     
     // Vídeo com maior crescimento de likes
     if (report.videoComMaiorCrescimentoLikes) {
-      csv += `Vídeo com maior crescimento de likes: "${report.videoComMaiorCrescimentoLikes.titulo}"\n`;
-      csv += `- Crescimento: ${report.videoComMaiorCrescimentoLikes.crescimentoLikes} likes (${report.videoComMaiorCrescimentoLikes.percentualCrescimentoLikes}%)\n\n`;
+      const videoLikes = report.videoComMaiorCrescimentoLikes;
+      csv += "Vídeo com maior crescimento de likes:\n";
+      csv += `- Título: "${this.escapeCsvValue(videoLikes.titulo)}"\n`;
+      csv += `- ID: ${videoLikes.videoId}\n`;
+      csv += `- Likes: ${videoLikes.likesIniciais.toLocaleString('pt-BR')} → ${videoLikes.likesFinais.toLocaleString('pt-BR')}\n`;
+      csv += `- Crescimento: ${videoLikes.crescimentoLikes.toLocaleString('pt-BR')} likes (${videoLikes.percentualCrescimentoLikes.toFixed(2)}%)\n\n`;
     }
     
     // Crescimento por vídeo
     if (report.crescimentoPorVideo && report.crescimentoPorVideo.length > 0) {
-      csv += `\nCrescimento por vídeo:\n`;
-      csv += `Título,Views Iniciais,Views Finais,Crescimento de Views,Crescimento %,Likes Iniciais,Likes Finais,Crescimento de Likes,Crescimento %\n`;
+      csv += "=== CRESCIMENTO DETALHADO POR VÍDEO ===\n";
+      // Cabeçalhos em português
+      csv += "ID do Vídeo,Título,Visualizações Iniciais,Visualizações Finais,Crescimento de Views,Crescimento %,Likes Iniciais,Likes Finais,Crescimento de Likes,Crescimento %\n";
       
       report.crescimentoPorVideo.forEach(videoGrowth => {
-        csv += `"${this.escapeCsvValue(videoGrowth.titulo)}",${videoGrowth.visualizacoesIniciais},${videoGrowth.visualizacoesFinais},${videoGrowth.crescimentoVisualizacoes},${videoGrowth.percentualCrescimentoVisualizacoes}%,${videoGrowth.likesIniciais},${videoGrowth.likesFinais},${videoGrowth.crescimentoLikes},${videoGrowth.percentualCrescimentoLikes}%\n`;
+        csv += `${videoGrowth.videoId},"${this.escapeCsvValue(videoGrowth.titulo)}",` +
+               `${videoGrowth.visualizacoesIniciais.toLocaleString('pt-BR')},` +
+               `${videoGrowth.visualizacoesFinais.toLocaleString('pt-BR')},` +
+               `${videoGrowth.crescimentoVisualizacoes.toLocaleString('pt-BR')},` +
+               `${videoGrowth.percentualCrescimentoVisualizacoes.toFixed(2)}%,` +
+               `${videoGrowth.likesIniciais.toLocaleString('pt-BR')},` +
+               `${videoGrowth.likesFinais.toLocaleString('pt-BR')},` +
+               `${videoGrowth.crescimentoLikes.toLocaleString('pt-BR')},` +
+               `${videoGrowth.percentualCrescimentoLikes.toFixed(2)}%\n`;
       });
       
-      csv += `\n`;
+      csv += "\n";
     }
     
     // Dados diários
-    csv += `\nEstatísticas Diárias:\n`;
-    csv += 'Data,Máximo de Visualizações,Vídeo,Máximo de Likes,Vídeo\n';
+    csv += "=== ESTATÍSTICAS DIÁRIAS ===\n";
+    csv += 'Data,Máximo de Visualizações,Vídeo com Mais Visualizações,Máximo de Likes,Vídeo com Mais Likes\n';
     
     report.estatisticasDiarias.forEach(day => {
-      csv += `${day.data},${day.maxVisualizacoes},"${this.escapeCsvValue(day.videoComMaxVisualizacoes)}",${day.maxLikes},"${this.escapeCsvValue(day.videoComMaxLikes)}"\n`;
+      csv += `${day.data},` +
+             `${day.maxVisualizacoes.toLocaleString('pt-BR')},` +
+             `"${this.escapeCsvValue(day.videoComMaxVisualizacoes)}",` +
+             `${day.maxLikes.toLocaleString('pt-BR')},` +
+             `"${this.escapeCsvValue(day.videoComMaxLikes)}"\n`;
     });
     
     return csv;
@@ -377,18 +422,239 @@ export class ReportService {
   private downloadFile(content: string, fileName: string, contentType: string): void {
     const blob = new Blob([content], { type: contentType });
     const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  
+  /**
+   * Exporta snapshots para CSV
+   */
+  exportSnapshotsToCSV(snapshots: Snapshot[], fileName: string): void {
+    if (!snapshots || snapshots.length === 0) {
+      console.warn('Nenhum snapshot para exportar');
+      return;
+    }
     
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
+    // Detectar todas as playlists únicas nos snapshots
+    const uniquePlaylists = new Map<string, string>(); // Map de ID da playlist para nome
+    snapshots.forEach(snapshot => {
+      if (snapshot.playlists && Array.isArray(snapshot.playlists)) {
+        snapshot.playlists.forEach((playlist: any) => {
+          const playlistId = playlist.playlistId || '';
+          const playlistTitle = playlist.playlistTitle || 'Playlist sem título';
+          if (playlistId && !uniquePlaylists.has(playlistId)) {
+            uniquePlaylists.set(playlistId, playlistTitle);
+          }
+        });
+      }
+    });
     
-    // Limpeza
-    setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 100);
+    // Mapear os snapshots para garantir que objetos sejam convertidos em texto
+    // e traduzir as chaves para português
+    const processedSnapshots = snapshots.map(snapshot => {
+      const processed: Record<string, any> = {};
+      
+      // Processar cada campo do snapshot
+      Object.entries(snapshot).forEach(([key, value]) => {
+        // Não processar o campo 'playlists' aqui, vamos tratá-lo separadamente
+        if (key === 'playlists') return;
+        
+        // Traduzir as chaves para português ao mesmo tempo que processa
+        let portugueseKey = this.translateKeyToPortuguese(key);
+        
+        if (value === null || value === undefined) {
+          processed[portugueseKey] = '';
+        } else if (typeof value === 'object' && !Array.isArray(value)) {
+          // Converter objetos para JSON string
+          processed[portugueseKey] = JSON.stringify(value);
+        } else if (Array.isArray(value)) {
+          // Para arrays, converter para string de itens separados por ponto e vírgula
+          processed[portugueseKey] = value.map(item => 
+            typeof item === 'object' ? 
+              (item.playlistTitle || item.title || JSON.stringify(item)) : 
+              String(item)
+          ).join('; ');
+        } else if (key === 'date' || key === 'lastUpdated' || key.includes('Data')) {
+          // Formatar datas para o padrão brasileiro
+          try {
+            const dateValue = new Date(value);
+            if (!isNaN(dateValue.getTime())) {
+              processed[portugueseKey] = format(dateValue, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+            } else {
+              processed[portugueseKey] = value;
+            }
+          } catch (e) {
+            processed[portugueseKey] = value;
+          }
+        } else {
+          processed[portugueseKey] = value;
+        }
+      });
+      
+      // Adicionar cada playlist como uma coluna separada
+      if (snapshot.playlists && Array.isArray(snapshot.playlists)) {
+        uniquePlaylists.forEach((playlistTitle, playlistId) => {
+          // Verificar se este snapshot contém esta playlist
+          const found = snapshot.playlists.some((p: any) => p.playlistId === playlistId);
+          // Criar uma coluna com o nome da playlist
+          processed[`Playlist: ${playlistTitle}`] = found ? 'Sim' : 'Não';
+        });
+      } else {
+        // Se não houver playlists, definir todas como 'Não'
+        uniquePlaylists.forEach((playlistTitle) => {
+          processed[`Playlist: ${playlistTitle}`] = 'Não';
+        });
+      }
+      
+      return processed;
+    });
+
+    // Reorganizar e traduzir as chaves em uma ordem mais lógica
+    const orderedKeys = [
+      'Data', 'VideoId', 'Titulo', 'TotalVisualizacoes', 'Likes'
+    ];
+    
+    // Filtrando as chaves que existem nos snapshots
+    const availableOrderedKeys = orderedKeys.filter(key => 
+      processedSnapshots.some(snapshot => Object.keys(snapshot).includes(key))
+    );
+    
+    // Adicionando chaves que não estão na lista ordenada, mas existem nos snapshots
+    // (excluindo as colunas de playlist que serão adicionadas separadamente)
+    const allKeys = new Set<string>();
+    processedSnapshots.forEach(snapshot => {
+      Object.keys(snapshot)
+        .filter(key => !key.startsWith('Playlist: '))
+        .forEach(key => allKeys.add(key));
+    });
+    
+    // Montar o conjunto final de cabeçalhos, colocando playlists no final
+    const headers = [
+      ...availableOrderedKeys,
+      ...Array.from(allKeys).filter(key => !availableOrderedKeys.includes(key) && !key.startsWith('Playlist: ')),
+    ];
+    
+    // Adicionar as colunas de playlist
+    const playlistHeaders = Array.from(uniquePlaylists.values()).map(title => `Playlist: ${title}`);
+    
+    // Adicionar um cabeçalho descritivo em português
+    let csvContent = "RELATÓRIO DE DADOS DO YOUTUBE\n";
+    csvContent += `Exportado em: ${format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}\n\n`;
+    
+    // Adicionar informação sobre o conteúdo se possível determinar o tipo
+    if (snapshots.length > 0) {
+      if (snapshots[0].videoId && !snapshots[0].playlistId) {
+        csvContent += "DADOS DE VÍDEO\n";
+        
+        // Tentar encontrar o título do vídeo
+        const videoTitle = snapshots.find(s => s.title || s.Titulo)?.title || snapshots.find(s => s.title || s.Titulo)?.Titulo || snapshots[0].videoId;
+        csvContent += `Vídeo: ${videoTitle}\n`;
+        csvContent += `ID: ${snapshots[0].videoId}\n\n`;
+        csvContent += `Playlists associadas: ${uniquePlaylists.size}\n\n`;
+      } else if (snapshots[0].playlistId && !snapshots[0].videoId) {
+        csvContent += "DADOS DE PLAYLIST\n";
+        csvContent += `ID da Playlist: ${snapshots[0].playlistId}\n\n`;
+      } else {
+        csvContent += "DADOS CONSOLIDADOS\n\n";
+      }
+      
+      // Adicionar estatísticas gerais
+      if (snapshots.length > 1) {
+        const firstSnapshot = snapshots[0];
+        const lastSnapshot = snapshots[snapshots.length - 1];
+        const initialViews = firstSnapshot.totalViews || 0;
+        const finalViews = lastSnapshot.totalViews || 0;
+        const growthViews = finalViews - initialViews;
+        const growthPercentage = initialViews > 0 ? (growthViews / initialViews) * 100 : 0;
+        
+        csvContent += "RESUMO DO PERÍODO\n";
+        csvContent += `Período analisado: ${snapshots.length} snapshots\n`;
+        csvContent += `Primeira data: ${processedSnapshots[0]['Data'] || 'N/A'}\n`;
+        csvContent += `Última data: ${processedSnapshots[processedSnapshots.length - 1]['Data'] || 'N/A'}\n`;
+        csvContent += `Visualizações iniciais: ${initialViews.toLocaleString('pt-BR')}\n`;
+        csvContent += `Visualizações finais: ${finalViews.toLocaleString('pt-BR')}\n`;
+        csvContent += `Crescimento: ${growthViews.toLocaleString('pt-BR')} visualizações (${growthPercentage.toFixed(2)}%)\n\n`;
+      }
+    }
+    
+    // Separador claro para os dados
+    csvContent += "=== DADOS DETALHADOS ===\n";
+    
+    // Montar cabeçalhos completos incluindo playlists
+    const completeHeaders = [...headers, ...playlistHeaders];
+    
+    // Adicionar cabeçalhos da tabela
+    csvContent += completeHeaders.join(',') + '\n';
+    
+    // Criar linhas com dados
+    const rows = processedSnapshots.map(snapshot => 
+      completeHeaders.map(header => {
+        const value = snapshot[header];
+        if (value === undefined || value === null) return '';
+        
+        // Se for um número, formatar sem aspas
+        if (typeof value === 'number') {
+          return value;
+        }
+        
+        // Escapar texto para o CSV
+        return `"${this.escapeCsvValue(String(value))}"`;
+      }).join(',')
+    );
+    
+    // Juntar linhas ao conteúdo
+    csvContent += rows.join('\n');
+    
+    // Download do arquivo
+    this.downloadFile(csvContent, fileName, 'text/csv;charset=utf-8');
+  }
+  
+  /**
+   * Traduz chaves para português para melhor visualização no CSV
+   */
+  private translateKeyToPortuguese(key: string): string {
+    const translations: Record<string, string> = {
+      'id': 'ID',
+      'date': 'Data',
+      'totalViews': 'TotalVisualizacoes',
+      'playlistId': 'PlaylistId',
+      'videoId': 'VideoId',
+      'title': 'Titulo',
+      'playlists': 'Playlists',
+      'likes': 'Likes',
+      'description': 'Descricao',
+      'viewCount': 'TotalVisualizacoes',
+      'likeCount': 'Likes',
+      'dislikeCount': 'Dislikes',
+      'publishedAt': 'DataPublicacao',
+      'lastUpdated': 'UltimaAtualizacao',
+      'channelId': 'CanalId',
+      'channelTitle': 'NomeCanal',
+      'position': 'Posicao',
+      'dailyViews': 'VisualizacoesDiarias',
+      'dailyLikes': 'LikesDiarios'
+    };
+    
+    // Retorna a tradução ou a chave original se não houver tradução
+    return translations[key] || key;
+  }
+  
+  /**
+   * Exporta snapshots para JSON
+   */
+  exportSnapshotsToJSON(snapshots: Snapshot[], fileName: string): void {
+    if (!snapshots || snapshots.length === 0) {
+      console.warn('Nenhum snapshot para exportar');
+      return;
+    }
+    
+    const jsonContent = JSON.stringify(snapshots, null, 2);
+    this.downloadFile(jsonContent, fileName, 'application/json');
   }
 }
 
